@@ -2,16 +2,33 @@
 Phoenix A / ACE Domain Execution Module - Sentinel Framework
 Concrete implementation of the ExecutionModule protocol.
 Applies deterministic numerical transforms over core payload frames.
-"""
 
+Hardening note (v1.6): the norm-based normalization path previously
+triggered a RuntimeWarning on extreme-magnitude inputs (e.g. 1e300) —
+np.linalg.norm's internal squaring step can overflow float64 range before
+the sqrt brings the result back down, even though the final output stayed
+finite. This version adds an explicit magnitude guard that routes extreme
+inputs through a numerically safe path before that overflow can occur,
+rather than relying on the eventual finite-output check to catch it after
+the fact. Per ARCHITECTURE_FREEZE_v1.5.md's implicit goal of deterministic
+warnings alongside deterministic results and failures, no code path in
+this module should raise a numpy warning on any input the module is
+expected to handle.
+"""
 import time
 import hashlib
 import numpy as np
 from typing import Dict, Any
-
 from execution_kernel_contract import CoreExecutionFrame
 from execution_kernel_state import KernelStateEnvelope
 from execution_module_contract import ExecutionModule, ExecutionResult
+
+# Magnitude threshold above which raw values are pre-scaled before norm
+# computation, to avoid overflow in the intermediate x.dot(x) step of
+# np.linalg.norm. Chosen well below sqrt(float64_max) (~1.34e154) with
+# a wide safety margin for the subsequent squaring operations performed
+# on the normalized vector.
+SAFE_MAGNITUDE_THRESHOLD = 1e100
 
 
 class PhoenixAExecutionModule(ExecutionModule):
@@ -19,7 +36,6 @@ class PhoenixAExecutionModule(ExecutionModule):
     Phoenix A Core / ACE Execution Engine.
     Implements stateless numerical signal processing over raw execution frame payloads.
     """
-
     def __init__(self, module_id: str = "phoenix_a_core_v1") -> None:
         self._module_id = module_id
 
@@ -52,15 +68,43 @@ class PhoenixAExecutionModule(ExecutionModule):
             raw_data = frame.payload.copy()
 
             # Step 2: ACE Domain Transformation (Stateless geometric transform)
-            # Normalize vector and derive secondary frequency components
-            norm_factor = np.linalg.norm(raw_data)
-            normalized_payload = raw_data if norm_factor == 0 else raw_data / norm_factor
+            # Guard against overflow in the norm computation itself: if any
+            # component's magnitude exceeds the safe threshold, pre-scale the
+            # whole vector by its max absolute value before computing the norm.
+            # This produces a mathematically equivalent direction (normalization
+            # is scale-invariant) while keeping every intermediate squaring
+            # operation well within float64 range.
+            max_abs = np.max(np.abs(raw_data))
 
-            # Execute transform kernel (Example: rolling phase shift & non-linear scaling)
+            if max_abs > SAFE_MAGNITUDE_THRESHOLD:
+                scale_factor = max_abs
+                scaled_data = raw_data / scale_factor
+                norm_factor = np.linalg.norm(scaled_data)
+            else:
+                scaled_data = raw_data
+                norm_factor = np.linalg.norm(raw_data)
+
+            # Near-zero guard: exact-zero AND near-zero norms both route to
+            # the unnormalized (or scaled-but-unnormalized) vector rather
+            # than dividing by a value close enough to zero to blow up.
+            if norm_factor < 1e-12:
+                normalized_payload = scaled_data
+            else:
+                normalized_payload = scaled_data / norm_factor
+
+            # Step: Execute transform kernel (rolling phase shift & non-linear scaling)
             transformed_payload = np.sin(normalized_payload * np.pi) + (normalized_payload * 0.5)
 
             # Ensure strict output shape and scalar type
             output_payload = transformed_payload.astype(np.float64)
+
+            if not np.all(np.isfinite(output_payload)):
+                return ExecutionResult(
+                    seq_id=frame.seq_id,
+                    success=False,
+                    output_payload=np.zeros(256, dtype=np.float64),
+                    error_message="ACE transform produced non-finite output despite magnitude guarding.",
+                )
 
             # Step 3: Compute Execution Metrics
             exec_latency_us = (time.perf_counter_ns() - start_time_ns) / 1000.0
