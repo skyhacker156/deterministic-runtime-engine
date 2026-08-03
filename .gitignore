@@ -31,3 +31,9 @@ dist/
 
 # Logs
 *.log
+
+# Rust build artifacts
+phoenix_core_rs/target/
+
+# Rust/Python caches
+phoenix_core_rs/.pytest_cache/
