@@ -49,7 +49,59 @@
 | Per-module sequence ordering holds within the persisted decision and audit logs | `causal_history_verifier.py` Check 2, 2 failure-injection cases including cross-module independence |
 | Every module_id in the decision/audit logs has a corresponding successful registration attempt on disk | `causal_history_verifier.py` Check 3, 2 failure-injection cases |
 | Verifier has zero import dependency on the live engine, registry, lifecycle manager, or authorizer — reads only the three log files | Confirmed by inspection of `causal_history_verifier.py`'s import list |
+---
+## Addition to PHOENIX_VERIFICATION_STATE.md
 
+Insert this as a new section, after the "Cross-Log Verification" table
+and before "Known Non-Verifiable Areas":
+
+---
+
+## Repository Reproducibility
+
+| Property | Evidence |
+|---|---|
+| Repository is self-contained: a fresh `git clone` into an unrelated directory, with `cargo build --release` run once as a documented manual step, produces a full 327/327 passing suite with zero hidden local-state dependencies | Manual verification: `git clone` into `phoenix-clean-test` (sibling directory, no shared state with the working `phoenix-verify` directory), followed by `cargo build --release` in `phoenix_core_rs/`, followed by `pytest -v` — 327 passed, 0 failed |
+
+**Scope note:** this confirms the repository's *committed source* is
+sufficient to reproduce the full test suite. It does NOT yet confirm
+this works with zero manual steps (the Rust build step is still a
+manual, undocumented-until-now prerequisite — see BUILD.md) or that
+Python dependency versions are pinned (no `requirements.txt` exists
+yet — see BUILD.md's TODO section). Both are named, tracked gaps, not
+silent assumptions.
+
+---
+
+Also add this line to the "Explicitly Out of Scope" section's list,
+or better, move it OUT of "out of scope" and into a new small
+"Known Gaps — Tooling" subsection alongside Gap 1 and Gap 2, since
+unlike the truly out-of-scope items (trading signal validity, crash
+safety), this one has a clear, near-term path to closing:
+
+### Gap 3 — Pinned Python dependency versions
+
+**Status:** Not yet closed.
+
+**What IS proven:** the three Python dependencies actually needed
+(`pytest`, `hypothesis`, `numpy`) are known, from direct inspection of
+test file imports across the suite.
+
+**What is NOT proven:** that any *specific version* of those three
+packages is required, or that the suite is robust to version drift in
+them.
+
+**Required to close:** run `pip freeze > requirements.txt` in a
+known-working environment and commit it.
+
+---
+
+## Also update the document's closing line to:
+
+**Last updated against:** full suite run at 327/327 passing, zero
+regressions, confirmed reproducible from a fresh clone with one
+documented manual build step (see BUILD.md). Python dependency
+versions not yet pinned (Gap 3).
 ---
 
 ## Known Non-Verifiable Areas (explicit gaps, not silent omissions)
