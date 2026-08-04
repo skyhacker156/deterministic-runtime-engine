@@ -6,17 +6,23 @@ Responsibility: the engine no longer needs to know how modules exist.
 The registry owns registration, lookup, and capability verification, so
 "can this module run" is answered before "run this module" is ever asked.
 
-Wiring update: resolve() now consults ModuleLifecycleManager before
-returning a module. Registry presence alone is no longer sufficient —
-a module that exists in the registry but is FAULTED or RETIRED in the
-lifecycle manager must not be resolvable for execution. This closes the
-gap named when the lifecycle manager was first built: a faulted module
-sitting in the registry with no lifecycle check could still be dispatched
-to by the engine.
+Wiring update: resolve() consults ModuleLifecycleManager before returning
+a module. Registry presence alone is no longer sufficient — a module that
+exists in the registry but is FAULTED or RETIRED in the lifecycle manager
+is not resolvable for execution.
+
+v2.2 addition: ModuleCapabilities now carries its own capability_hash,
+computed deterministically from its own fields — matching the pattern
+already established by ExecutionResult.module_hash, ExecutionAuditRecord.
+audit_hash, and ExecutionPolicy.policy_hash. This lets ExecutionPolicyDecision
+reference a real, point-in-time snapshot of what the registry confirmed
+about a module's capabilities, rather than recomputing or restating them.
 """
 
-from dataclasses import dataclass
-from typing import Dict, Optional
+import hashlib
+import struct
+from dataclasses import dataclass, field
+from typing import Dict
 
 from execution_module_contract import ExecutionModule
 from module_lifecycle import ModuleLifecycleManager, ModuleState
@@ -50,11 +56,32 @@ class ModuleCapabilities:
     Capabilities as CONFIRMED by the registry, not as self-reported by the
     module. Only produced by the registry itself, never constructed
     directly from a module's own claims.
+
+    capability_hash is computed from this object's own fields — a
+    deterministic, order-independent fingerprint of what was confirmed at
+    registration time. Referenced (never recomputed) by downstream
+    consumers such as ExecutionPolicyDecision.capability_snapshot_hash.
     """
     deterministic: bool
     replayable: bool
     audit_safe: bool
     verified: bool  # False if registered with verify=False
+
+    capability_hash: bytes = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "capability_hash", self._compute_hash())
+
+    def _compute_hash(self) -> bytes:
+        flags = (
+            (int(self.deterministic) << 3)
+            | (int(self.replayable) << 2)
+            | (int(self.audit_safe) << 1)
+            | int(self.verified)
+        )
+        # Format version byte first, matching ExecutionPolicy.canonical_bytes
+        # and every other hashed artifact in this codebase.
+        return hashlib.sha256(struct.pack(">BB", 1, flags)).digest()
 
 
 @dataclass(frozen=True)
@@ -73,12 +100,11 @@ class ExecutionModuleRegistry:
     instance every time, PROVIDED the module is currently ACTIVE in the
     lifecycle manager.
 
-    The registry now owns a ModuleLifecycleManager internally. Registration
+    The registry owns a ModuleLifecycleManager internally. Registration
     automatically advances a module through DISCOVERED -> VALIDATED ->
     REGISTERED. Activation is a SEPARATE, explicit step (activate()) —
-    matching module_lifecycle.py's design that REGISTERED does not imply
-    ACTIVE. resolve() only succeeds once a module has been explicitly
-    activated.
+    REGISTERED does not imply ACTIVE. resolve() only succeeds once a
+    module has been explicitly activated.
     """
 
     def __init__(self) -> None:
@@ -115,7 +141,7 @@ class ExecutionModuleRegistry:
         # NOTE: manifest validation (v1.8) is not yet wired into this
         # transition — mark_validated is currently called unconditionally
         # after discover(). Wiring ModuleManifest/check_manifest_compatible
-        # in here is the natural next gap to close, tracked separately.
+        # in here remains an open, explicitly tracked gap.
         self._lifecycle.mark_validated(module_id)
 
         if verify:
@@ -146,15 +172,13 @@ class ExecutionModuleRegistry:
     def activate(self, module_id: str) -> None:
         """
         Explicit administrative action: makes a REGISTERED module eligible
-        for resolve(). Matches ModuleLifecycleManager.activate()'s
-        semantics exactly — registration passing compliance does not by
-        itself grant execution eligibility.
+        for resolve(). Registration passing compliance does not by itself
+        grant execution eligibility.
 
         Raises:
             ModuleNotFoundError: module_id was never registered.
             InvalidLifecycleTransitionError (from module_lifecycle): module
-                is not currently in REGISTERED state (e.g. already ACTIVE,
-                or FAULTED with no recovery path).
+                is not currently in REGISTERED state.
         """
         if module_id not in self._entries:
             raise ModuleNotFoundError(
@@ -165,8 +189,7 @@ class ExecutionModuleRegistry:
     def fault(self, module_id: str, reason: str) -> None:
         """
         Marks a currently-ACTIVE module as FAULTED, immediately making it
-        unresolvable. Use this when a module is found to violate its
-        contract after having been activated.
+        unresolvable.
 
         Raises:
             ModuleNotFoundError: module_id was never registered.
