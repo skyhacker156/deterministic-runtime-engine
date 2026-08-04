@@ -117,7 +117,17 @@ versions not yet pinned (Gap 3).
 **Reason:** `ExecutionAuditRecord.prior_state_hash` is documented as a reference to `KernelStateEnvelope.state_hash`, "captured before execution" — but the derivation logic for how that hash is computed and chained across frames lives in `execution_kernel_state.py`, which has not yet been made available to the verifier's design. Building this check without that file would mean guessing at chaining logic — a mistake this project already paid for once this session (the `ModuleComplianceError` inheritance investigation).
 
 **Required to close:** `execution_kernel_state.py`'s `state_hash` derivation, reviewed and incorporated into the verifier.
+### Gap 1b — No reset-generation disambiguation in any persisted hash
 
+**Status:** Confirmed limitation, proven by direct experiment.
+
+**Finding:** across a fault → administrative reset → resume cycle, every hash currently persisted — `KernelStateEnvelope.state_hash`, `ExecutionPolicyDecision.decision_hash`, `DecisionRecord.record_hash` — collides between the pre-reset and post-reset generations, when lifecycle state, policy, and capabilities are otherwise identical. `ExecutionPolicyState.observed_invocation_count` genuinely differs across the reset but is excluded from `decision_hash`'s computation and is not carried forward as a field on `DecisionRecord` at all.
+
+**Evidence:** `test_reset_epoch_observability.py`, both tests, run against the real `DeterministicExecutionEngine`, `KernelStateMachine`, and `ExecutionAuthorizer`.
+
+**Practical consequence:** a genuine identical-content replay after an administrative reset would be indistinguishable from the original run across every hash field currently in the schema — distinguishable only by incidental frame-content differences, if any exist.
+
+**Required to close:** a new persisted field (e.g. a monotonic boot/reset generation counter) threaded through `KernelStateEnvelope`, `ExecutionPolicyDecision`, and `DecisionRecord` — not a kernel-only fix, since the collision is confirmed at both layers independently.
 ### Gap 2 — Policy decision hash provenance
 
 **Status:** Not independently verifiable.
