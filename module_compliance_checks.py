@@ -17,6 +17,14 @@ Each function raises ModuleComplianceError with a specific message on
 failure, and returns None on success (pass-through pattern, not a bool),
 so a failure is always an explicit exception, never a silently-ignored
 False.
+
+ModuleComplianceError now inherits from ModuleRegistrationError
+(execution_module_registry.py), so that ExecutionModuleRegistry.register()
+can catch any Phase-1 registration failure -- manifest incompatibility or
+compliance failure -- with a single except clause. This import is a
+one-way dependency (this file -> execution_module_registry.py); the
+registry only imports from this module lazily, inside
+_run_compliance_check's function body, so there is no import cycle.
 """
 
 import numpy as np
@@ -24,9 +32,10 @@ import numpy as np
 from execution_kernel_contract import CoreExecutionFrame
 from execution_kernel_state import KernelState, KernelStateEnvelope
 from execution_module_contract import ExecutionModule, ExecutionResult
+from execution_module_registry import ModuleRegistrationError
 
 
-class ModuleComplianceError(Exception):
+class ModuleComplianceError(ModuleRegistrationError):
     """Raised when a module fails any compliance check in this module."""
     pass
 
