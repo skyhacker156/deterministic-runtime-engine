@@ -2,7 +2,7 @@
 
 **Purpose:** a single reference for "what has actually been proven, and by what evidence" — so six months from now the answer to "did we actually prove this?" is in one place, not scattered across chat history.
 
-**Scope note on language:** nothing below is marked "VERIFIED" as a standalone claim. Every line is phrased as *covered by a specific, named, passing test suite as of the most recent full run (327/327, all green, zero regressions)*. That is a narrower and more honest claim than "verified" — it means these properties hold for the test suite's inputs and this codebase's current state, not that the system has been adversarially tested, audited by a third party, or run under production load.
+**Scope note on language:** nothing below is marked "VERIFIED" as a standalone claim. Every line is phrased as *covered by a specific, named, passing test suite as of the most recent full run*, currently 342/342, all green, zero regressions. That is a narrower and more honest claim than "verified" — it means these properties hold for the test suite's inputs and this codebase's current state, not that the system has been adversarially tested, audited by a third party, or run under production load.
 
 ---
 
@@ -14,10 +14,10 @@
 | Cryptographic hash stability (identical inputs → identical hash; any field change → different hash) | Fuzz tests across all three record types: `test_fuzz_identical_*`, `test_fuzz_changed_*` in each persistence/audit test file |
 | Registration atomicity (failed registration leaves no lifecycle trace; retry works; duplicates still blocked) | `test_registration_atomicity.py`, 5/5 |
 | Registration attempt telemetry (failures are recorded, not forgotten, without affecting duplicate protection) | `test_registration_attempt_history.py`, 5/5 |
-| Decision ancestry, in-memory (every audit record has exactly one preceding allowed decision) | `test_decision_record_invariants.py` Invariant B, `test_invariant_b_every_audit_record_has_exactly_one_preceding_allowed_decision` |
+| Decision ancestry, in-memory (every audit record has exactly one preceding allowed decision) | `test_decision_record_invariants.py` Invariant B |
 | Decision count matches attempt count, replay ordering preserved | `test_decision_record_invariants.py` Invariants A and C |
 | State-hash chaining across frames, within a live engine instance | `test_engine_audit_integration.py::test_audit_record_chains_to_prior_state_hash`, `test_deterministic_execution_engine.py::test_happy_path_and_cryptographic_state_chaining` |
-| Replay determinism, in-memory (same engine, same inputs, same output hashes) | `test_deterministic_execution_engine.py::test_replay_equivalence_determinism`, `test_pipeline_integration.py::test_deterministic_replay_across_runs`, `test_replay_engine_audit_chain.py` (8 tests) |
+| Replay determinism, in-memory (same engine, same inputs, same output hashes) | `test_deterministic_execution_engine.py::test_replay_equivalence_determinism`, `test_pipeline_integration.py::test_deterministic_replay_across_runs`, `test_replay_engine_audit_chain.py` |
 | Module lifecycle state machine (legal/illegal transitions, terminal states) | `test_module_lifecycle.py`, 22/22 |
 | Compliance check suite (determinism, no context mutation, graceful rejection of pathological input, hashable output, auditable failure) | `test_module_contract_compliance.py`, both `PhoenixAExecutionModule` and `ExampleExecutionModule` |
 
@@ -45,78 +45,44 @@
 
 | Property | Evidence |
 |---|---|
-| Decision ancestry, re-derived purely from disk (every audit record on disk has a matching allowed decision record on disk) | `causal_history_verifier.py` Check 1, `test_causal_history_verifier.py`, 2 failure-injection cases |
-| Per-module sequence ordering holds within the persisted decision and audit logs | `causal_history_verifier.py` Check 2, 2 failure-injection cases including cross-module independence |
-| Every module_id in the decision/audit logs has a corresponding successful registration attempt on disk | `causal_history_verifier.py` Check 3, 2 failure-injection cases |
-| Verifier has zero import dependency on the live engine, registry, lifecycle manager, or authorizer — reads only the three log files | Confirmed by inspection of `causal_history_verifier.py`'s import list |
----
-## Addition to PHOENIX_VERIFICATION_STATE.md
+| Decision ancestry, re-derived purely from disk (every audit record on disk has a matching allowed decision record on disk) | `causal_history_verifier.py` Check 1, `test_causal_history_verifier.py` |
+| Per-module sequence ordering holds within the persisted decision and audit logs | `causal_history_verifier.py` Check 2 |
+| Every module_id in the decision/audit logs has a corresponding successful registration attempt on disk | `causal_history_verifier.py` Check 3 |
+| Verifier has zero import dependency on the live engine, registry, lifecycle manager, or authorizer — proven by subprocess, not just import inspection | `test_verifier_runtime_isolation.py` |
 
-Insert this as a new section, after the "Cross-Log Verification" table
-and before "Known Non-Verifiable Areas":
+## Cold Boot Reconstruction
 
----
+| Property | Evidence |
+|---|---|
+| Registration, authorization, and execution histories reconstructed as real objects from disk alone, with verified ordering and causal relationships | `cold_boot_reconstruction.py`, `test_cold_boot_reconstruction.py`, 11/11, every test traced to a specific clause of `COLD_BOOT_RECONSTRUCTION_CONTRACT.md` |
+| Hash recomputation happens only via the actual record classes' own derivation — never reimplemented | Structural AST-based import tests in `test_cold_boot_reconstruction.py` |
 
 ## Repository Reproducibility
 
 | Property | Evidence |
 |---|---|
-| Repository is self-contained: a fresh `git clone` into an unrelated directory, with `cargo build --release` run once as a documented manual step, produces a full 327/327 passing suite with zero hidden local-state dependencies | Manual verification: `git clone` into `phoenix-clean-test` (sibling directory, no shared state with the working `phoenix-verify` directory), followed by `cargo build --release` in `phoenix_core_rs/`, followed by `pytest -v` — 327 passed, 0 failed |
+| Repository is self-contained: a fresh `git clone` into an unrelated directory, with `cargo build --release` run once as a documented manual step, produces a full passing suite with zero hidden local-state dependencies | Manual verification: clean clone into a sibling directory, `cargo build --release`, `pytest -v` — full suite passed |
 
-**Scope note:** this confirms the repository's *committed source* is
-sufficient to reproduce the full test suite. It does NOT yet confirm
-this works with zero manual steps (the Rust build step is still a
-manual, undocumented-until-now prerequisite — see BUILD.md) or that
-Python dependency versions are pinned (no `requirements.txt` exists
-yet — see BUILD.md's TODO section). Both are named, tracked gaps, not
-silent assumptions.
+**Scope note:** this confirms the repository's committed source is sufficient to reproduce the full test suite. It does NOT yet confirm this works with zero manual steps (the Rust build step is a documented manual prerequisite — see `BUILD.md`).
 
----
-
-Also add this line to the "Explicitly Out of Scope" section's list,
-or better, move it OUT of "out of scope" and into a new small
-"Known Gaps — Tooling" subsection alongside Gap 1 and Gap 2, since
-unlike the truly out-of-scope items (trading signal validity, crash
-safety), this one has a clear, near-term path to closing:
-
-### Gap 3 — Pinned Python dependency versions
-
-**Status:** Not yet closed.
-
-**What IS proven:** the three Python dependencies actually needed
-(`pytest`, `hypothesis`, `numpy`) are known, from direct inspection of
-test file imports across the suite.
-
-**What is NOT proven:** that any *specific version* of those three
-packages is required, or that the suite is robust to version drift in
-them.
-
-**Required to close:** run `pip freeze > requirements.txt` in a
-known-working environment and commit it.
-
----
-
-## Also update the document's closing line to:
-
-**Last updated against:** full suite run at 327/327 passing, zero
-regressions, confirmed reproducible from a fresh clone with one
-documented manual build step (see BUILD.md). Python dependency
-versions not yet pinned (Gap 3).
 ---
 
 ## Known Non-Verifiable Areas (explicit gaps, not silent omissions)
 
-### Gap 1 — Kernel state-hash chain, independently from disk
+### Gap 1 — Kernel state-hash consistency, from disk alone
 
-**Status:** Not verifiable by the current external verifier.
+**Status:** Not available under the current persistence schema.
 
-**What IS proven:** state-hash chaining across frames holds within a single live `DeterministicExecutionEngine` instance (see in-memory table above).
+**What was previously believed:** that this capability was "contingent on Gap 1 closing (`execution_kernel_state.py`'s derivation being incorporated into the verifier)" — implying the fix was simply exposing an existing algorithm to the verifier.
 
-**What is NOT proven:** that the same chain can be independently reconstructed and verified from `execution_audit_log.jsonl` alone, without any live engine object, after the process that wrote it is gone.
+**What is actually true, on re-examination of `execution_kernel_state.py`:** `KernelStateEnvelope.state_hash` is derived from `KernelStateMachine`'s PRIVATE mutable state (`last_processed_seq`, `total_frames_processed`, `current_state`, `fault_reason`) — none of which are persisted anywhere in the current schema. Only the resulting hash (`prior_state_hash`, opaque 32 bytes) is ever stored on disk. There is nothing to recompute the hash *from*, independent of whether the derivation algorithm is known.
 
-**Reason:** `ExecutionAuditRecord.prior_state_hash` is documented as a reference to `KernelStateEnvelope.state_hash`, "captured before execution" — but the derivation logic for how that hash is computed and chained across frames lives in `execution_kernel_state.py`, which has not yet been made available to the verifier's design. Building this check without that file would mean guessing at chaining logic — a mistake this project already paid for once this session (the `ModuleComplianceError` inheritance investigation).
+**Required to close:** NOT simply "incorporate the derivation into the verifier." Closing this requires one of two materially different paths:
+  - **(a)** Persist the four raw derivation inputs as new fields on some future log entry, then build a new pure function replicating `get_envelope()`'s packing logic — which is itself a reimplementation the project's existing "never reimplement, always recompute via the actual class" constraint currently forbids, and would need an explicit, documented exception.
+  - **(b)** Sequential replay: construct a real `KernelStateMachine`, replay every transition from genesis through the persisted history, and compare its `get_envelope().state_hash` at each step against persisted `prior_state_hash` values. This is materially larger in scope than exposing an algorithm, and introduces live, mutable runtime state into what has so far been a passive-record-only verifier.
 
-**Required to close:** `execution_kernel_state.py`'s `state_hash` derivation, reviewed and incorporated into the verifier.
+See `COLD_BOOT_RECONSTRUCTION_CONTRACT.md` SHALL 5 for the full corrected analysis.
+
 ### Gap 1b — No reset-generation disambiguation in any persisted hash
 
 **Status:** Confirmed limitation, proven by direct experiment.
@@ -125,9 +91,12 @@ versions not yet pinned (Gap 3).
 
 **Evidence:** `test_reset_epoch_observability.py`, both tests, run against the real `DeterministicExecutionEngine`, `KernelStateMachine`, and `ExecutionAuthorizer`.
 
+**This limitation is information-theoretic, not implementation-specific:** the schema contains zero bits of reset-generation information for any algorithm to recover.
+
 **Practical consequence:** a genuine identical-content replay after an administrative reset would be indistinguishable from the original run across every hash field currently in the schema — distinguishable only by incidental frame-content differences, if any exist.
 
 **Required to close:** a new persisted field (e.g. a monotonic boot/reset generation counter) threaded through `KernelStateEnvelope`, `ExecutionPolicyDecision`, and `DecisionRecord` — not a kernel-only fix, since the collision is confirmed at both layers independently.
+
 ### Gap 2 — Policy decision hash provenance
 
 **Status:** Not independently verifiable.
@@ -151,6 +120,6 @@ versions not yet pinned (Gap 3).
 
 ---
 
-**Last updated against:** full suite run at 327/327 passing, zero regressions, all work through the causal history verifier's initial three checks and both append-only log extensions.
+**Last updated against:** full suite run at 342/342 passing, zero regressions, confirmed reproducible from a fresh clone with one documented manual build step (see `BUILD.md`). Python dependency versions pinned via `requirements.txt` (Gap 3, closed). Gap 1 corrected 2026-08-04: prior framing understated the gap — see Gap 1 entry above and `COLD_BOOT_RECONSTRUCTION_CONTRACT.md` v1.1.
 
-**Maintenance note:** when a new check, record type, or log is added, add its row to the relevant table above with the specific test file/name as evidence — not a bare checkmark. When a gap closes, move its row from "Known Non-Verifiable Areas" into the appropriate verified table, citing the new evidence.
+**Maintenance note:** when a new check, record type, or log is added, add its row to the relevant table above with the specific test file/name as evidence — not a bare checkmark. When a gap closes, move its row from "Known Non-Verifiable Areas" into the appropriate verified table, citing the new evidence. When a gap's own description turns out to be wrong (as happened with Gap 1), correct it in place with the old framing left visible, not silently replaced.

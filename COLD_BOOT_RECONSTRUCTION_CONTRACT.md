@@ -1,6 +1,6 @@
 # COLD_BOOT_RECONSTRUCTION_CONTRACT.md
 
-**Status:** Draft specification, v1. Precedes and constrains
+**Status:** Draft specification, v1.1. Precedes and constrains
 `test_cold_boot_reconstruction.py` — no reconstruction code should be
 written against a claim not listed here as SHALL, and any test
 asserting a SHALL NOT claim is itself a contract violation.
@@ -88,12 +88,49 @@ smuggled into a SHALL clause.
      `DecisionRecord.record_hash`, and
      `ExecutionAuditRecord.audit_hash`, via the tampering tests in
      each record type's persistence test file.
-   - **Not yet available** for `KernelStateEnvelope.state_hash` — this
-     capability is contingent on Gap 1 closing
-     (`execution_kernel_state.py`'s derivation being incorporated into
-     the verifier, via the same class-construction path described
-     above). Until then, `state_hash` consistency is unverified by any
-     reconstruction code.
+
+   - **Not available under the current persistence schema** for
+     `KernelStateEnvelope.state_hash`. Unlike the three record types
+     above, `KernelStateEnvelope` has no `__post_init__` and derives
+     no hash of its own — `state_hash` is computed externally, inside
+     `KernelStateMachine.get_envelope()`, from that machine's PRIVATE
+     mutable state (`last_processed_seq`, `total_frames_processed`,
+     `current_state`, `fault_reason`). None of these four scalar
+     inputs are persisted anywhere in the current schema — not in
+     `ExecutionAuditRecord`, not in any log. Only the OUTPUT
+     (`prior_state_hash`, an opaque 32 bytes) is ever stored; the
+     inputs needed to recompute it are not.
+
+     This means SHALL 5's implementation constraint (recompute via the
+     actual class's own derivation, never reimplement) has no clean
+     target for `state_hash` as things stand, because there is no
+     self-contained derivation on a persisted object to call into.
+     Closing this requires one of two materially different paths, not
+     a simple extension of the existing SHALL 5 pattern:
+
+     (a) **Persist the four raw derivation inputs** as new fields on
+         some future log entry. This would then require a NEW pure
+         function replicating `get_envelope()`'s packing logic — which
+         is itself a reimplementation SHALL 5's constraint currently
+         forbids, and would need a deliberate, explicitly documented
+         exception to that constraint, not a quiet exception.
+
+     (b) **Sequential replay**: construct a real `KernelStateMachine`,
+         replay every transition from genesis through the persisted
+         history in order, and compare its `get_envelope().state_hash`
+         at each step against the corresponding `prior_state_hash`
+         already on disk. This uses the actual class (satisfying
+         SHALL 5's spirit more faithfully than (a)), but is materially
+         larger in scope than "expose an algorithm," and introduces a
+         real, mutable, stateful runtime object into what has so far
+         been a passive-record-only verifier — a change to the
+         verifier's isolation posture that should be considered
+         deliberately, not incidentally.
+
+     Until one of these paths is chosen and built, `state_hash`
+     consistency remains unverified by any reconstruction code, and
+     this is not merely a matter of "incorporating a derivation" —
+     it is a genuine schema gap.
 
 ---
 
@@ -193,3 +230,15 @@ behind every reset-related SHALL NOT clause above.
   implementation-specific, and constrained SHALL item 5 to require
   hash recomputation via the actual record classes rather than a
   separately reimplemented derivation.
+
+- **v1.1** (2026-08-04): corrected the SHALL 5 entry for
+  `KernelStateEnvelope.state_hash`. The prior wording ("contingent on
+  Gap 1 closing, `execution_kernel_state.py`'s derivation being
+  incorporated") understated the actual gap — re-examination of
+  `execution_kernel_state.py` shows `state_hash`'s four scalar inputs
+  are private `KernelStateMachine` state, never persisted anywhere in
+  the current schema; only the output hash is stored. Replaced with an
+  accurate description of the two genuinely different closure paths
+  (persisting new fields with an explicit reimplementation exception,
+  or sequential replay through a real state machine instance) and why
+  neither is a simple extension of the existing SHALL 5 pattern.
