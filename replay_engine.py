@@ -10,13 +10,27 @@ just the final tensors.
 This is purely additive: execute_replay_pass (bridge-level replay) is
 unchanged. The new execute_full_pipeline_replay and verify methods are a
 separate, higher path that goes all the way through the kernel engine.
+
+generation_id note: execute_full_pipeline_replay's ordinary behavior
+(generation_id omitted) is completely unchanged -- it builds a fresh
+DeterministicExecutionEngine via normal construction, exactly as before,
+so single-pass callers (test_full_pipeline_replay_produces_summary and
+friends) see no behavior change at all. The optional generation_id
+parameter exists specifically for verify_causal_chain_determinism below,
+which needs its two internal passes to represent the SAME kernel
+generation, not two independently-constructed ones -- two ordinary
+DeterministicExecutionEngine() instances are, by design, two different
+generations (see DeterministicExecutionEngine.with_generation()'s own
+docstring), and comparing audit hashes across those would be comparing
+two different lifetimes, not proving causal-chain determinism.
 """
 
 import os
 import struct
 import hashlib
+import uuid
 from dataclasses import dataclass
-from typing import List, Generator, Tuple
+from typing import List, Generator, Optional, Tuple
 
 from vent_adapter_contract import VentAdapterContract, RawVentTelemetryPacket, SanitizedEngineBatch, AdapterLogRecord
 from bridge_integrator_contract import BridgeIntegrator, CoreExecutionFrame as BridgeExecutionFrame
@@ -48,6 +62,12 @@ class FullPipelineReplaySummary:
     on this field, even with completely different frame content. Content
     sensitivity lives in audit_hashes, which incorporates each frame's actual
     input/output hashes.
+
+    Since the generation_id migration, final_kernel_state_hash ALSO now
+    depends on generation_id -- two equal-length runs belonging to
+    DIFFERENT generations will no longer match here even with identical
+    frame content, unless the caller deliberately held generation_id fixed
+    across both (see execute_full_pipeline_replay's generation_id param).
     """
     total_frames_processed: int
     audit_hashes: Tuple[bytes, ...]
@@ -229,7 +249,9 @@ class ReplayEngine:
         return summary, execution_frames
 
     @classmethod
-    def execute_full_pipeline_replay(cls, dataset_path: str, module) -> FullPipelineReplaySummary:
+    def execute_full_pipeline_replay(
+        cls, dataset_path: str, module, generation_id: Optional[bytes] = None
+    ) -> FullPipelineReplaySummary:
         """
         Step 3: full pipeline replay through adapter -> bridge -> seam
         conversion -> DeterministicExecutionEngine, capturing the complete
@@ -238,9 +260,26 @@ class ReplayEngine:
         `module` must be a fresh ExecutionModule instance (e.g.
         PhoenixAExecutionModule()) supplied by the caller, so each call
         gets an independent engine and log rather than sharing state.
+
+        generation_id: optional. When omitted (the default), the engine is
+        built via ordinary DeterministicExecutionEngine(module=module) --
+        ordinary fresh-genesis construction, unchanged from prior behavior.
+        When supplied, the engine is built via
+        DeterministicExecutionEngine.with_generation(generation_id=...)
+        instead, so this pass belongs to a caller-specified generation
+        rather than minting a fresh random one. Exists for
+        verify_causal_chain_determinism below, which needs two calls to
+        this method to represent the SAME generation to prove genuine
+        causal-chain determinism -- not for ordinary single-pass callers,
+        which should omit this argument entirely.
         """
         adapter = VentAdapterContract()
-        engine = DeterministicExecutionEngine(module=module)
+        if generation_id is not None:
+            engine = DeterministicExecutionEngine.with_generation(
+                generation_id=generation_id, module=module
+            )
+        else:
+            engine = DeterministicExecutionEngine(module=module)
         engine.initialize()
 
         seq_id = 0
@@ -272,9 +311,23 @@ class ReplayEngine:
 
         module_factory: a zero-arg callable returning a fresh ExecutionModule
         instance, e.g. `lambda: PhoenixAExecutionModule()`.
+
+        generation_id is generated once here and passed to BOTH passes, so
+        this proves computational determinism GIVEN the same kernel
+        generation -- not an incidental comparison of two different kernel
+        lifetimes, which is what two ordinary independently-constructed
+        engines would be by design (see
+        DeterministicExecutionEngine.with_generation()'s own docstring).
+        The actual value doesn't matter, only that both passes share it.
         """
-        summary_1 = cls.execute_full_pipeline_replay(dataset_path, module_factory())
-        summary_2 = cls.execute_full_pipeline_replay(dataset_path, module_factory())
+        shared_generation_id = uuid.uuid4().bytes
+
+        summary_1 = cls.execute_full_pipeline_replay(
+            dataset_path, module_factory(), generation_id=shared_generation_id
+        )
+        summary_2 = cls.execute_full_pipeline_replay(
+            dataset_path, module_factory(), generation_id=shared_generation_id
+        )
 
         if summary_1.total_frames_processed != summary_2.total_frames_processed:
             return False

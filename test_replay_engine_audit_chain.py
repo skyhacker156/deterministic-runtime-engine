@@ -10,6 +10,7 @@ adapter -> bridge -> kernel engine, and that the full audit_hash chain
 
 import os
 import tempfile
+import uuid
 import pytest
 
 from replay_engine import (
@@ -98,11 +99,21 @@ def test_causal_chain_determinism_holds_for_larger_dataset(larger_dataset_file):
 
 
 def test_two_independent_replay_passes_produce_identical_audit_hashes(small_dataset_file):
+    """
+    generation_id is held fixed across both calls below, for the same
+    reason verify_causal_chain_determinism does: two ordinary
+    independently-constructed engines are, by design, two different
+    kernel generations, so comparing audit hashes across them would be
+    comparing two different lifetimes rather than proving determinism
+    given the same one.
+    """
+    shared_generation_id = uuid.uuid4().bytes
+
     summary_1 = ReplayEngine.execute_full_pipeline_replay(
-        small_dataset_file, PhoenixAExecutionModule()
+        small_dataset_file, PhoenixAExecutionModule(), generation_id=shared_generation_id
     )
     summary_2 = ReplayEngine.execute_full_pipeline_replay(
-        small_dataset_file, PhoenixAExecutionModule()
+        small_dataset_file, PhoenixAExecutionModule(), generation_id=shared_generation_id
     )
 
     assert summary_1.total_frames_processed == summary_2.total_frames_processed
