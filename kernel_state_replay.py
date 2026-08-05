@@ -52,6 +52,7 @@ gap, not covered by this module):
 """
 
 from dataclasses import dataclass, field
+from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
 
 from execution_kernel_state import KernelStateMachine, KernelState
@@ -164,3 +165,35 @@ def replay_and_verify_state_hashes(
         stopped_at_fault_index=stopped_at_fault_index,
         unverified_after_fault_count=unverified_after_fault_count,
     )
+
+
+class KernelStateVerifier(ABC):
+    """
+    Interface for anything capable of verifying KernelStateEnvelope.
+    state_hash consistency for a given execution history. Exists so
+    future verification strategies (e.g. Path A -- persisted-field
+    recomputation, should it ever be built once a schema change adds
+    the raw inputs) can be swapped in without changing callers.
+
+    Step 1 of this session's implementation plan: extracting the
+    existing replay logic behind this interface, rather than leaving
+    it as a bare free function only.
+    """
+
+    @abstractmethod
+    def verify(self, execution_history: Tuple[ExecutionAuditRecord, ...]) -> KernelReplayReport:
+        ...
+
+
+class SequentialReplayKernelVerifier(KernelStateVerifier):
+    """
+    Path (B) / "Canonical Replay Verification" per
+    COLD_BOOT_RECONSTRUCTION_CONTRACT.md: sequential replay through a
+    real KernelStateMachine. Thin wrapper around
+    replay_and_verify_state_hashes() -- the free function remains the
+    actual implementation and stays available directly for callers who
+    don't need the interface (e.g. existing tests in this file).
+    """
+
+    def verify(self, execution_history: Tuple[ExecutionAuditRecord, ...]) -> KernelReplayReport:
+        return replay_and_verify_state_hashes(execution_history)
