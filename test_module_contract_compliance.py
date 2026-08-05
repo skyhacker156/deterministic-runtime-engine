@@ -9,6 +9,28 @@ test in this file. Passing by inspection is not sufficient.
 To validate a new module, add it to MODULES_UNDER_TEST below. Every test in
 this file runs once per registered module automatically via pytest's
 parametrize mechanism.
+
+NOTE (found during generation_id migration, not fixed here): this file
+maintains its own independent _make_envelope() / test_module_replay_matches
+implementation rather than importing from module_compliance_checks.py,
+despite that module's docstring claiming both files "import and call
+these same functions rather than maintaining two independent
+implementations." That claim does not currently hold -- this file has no
+import of module_compliance_checks.py at all. Left as-is for this pass;
+worth a deliberate decision later on whether to consolidate onto one
+shared implementation or correct the docstring claim, rather than
+silently living with the drift.
+
+generation_id note: _make_envelope() supplies a fixed placeholder
+generation_id (_ENVELOPE_GENERATION_ID), safe because every test using it
+builds exactly ONE envelope and reuses that same object throughout.
+test_module_replay_matches is the one test that spans two independent
+DeterministicExecutionEngine instances, so it uses
+DeterministicExecutionEngine.with_generation() with its own separate
+fixed constant (_REPLAY_GENERATION_ID) to hold generation identity
+constant across both runs -- see with_generation()'s own docstring for
+why an ordinary two-independent-engines comparison would otherwise be
+comparing two different generations, not testing determinism.
 """
 
 import copy
@@ -45,6 +67,16 @@ def _make_frame(seq_id: int = 0, timestamp_ns: int = 1_000_000, seed_val: float 
     return CoreExecutionFrame.create(seq_id=seq_id, timestamp_ns=timestamp_ns, payload=payload)
 
 
+# Fixed placeholder generation_id for envelopes built by _make_envelope().
+# Every test using it constructs exactly ONE envelope and reuses that
+# same object for the duration of the test -- none of them replay across
+# independent KernelStateMachine instances, so a fixed constant is safe:
+# it never needs to match anything real, it only needs to be present.
+# See test_module_replay_matches below for the one test that spans two
+# independent engine instances and does NOT use this constant.
+_ENVELOPE_GENERATION_ID = b"\xCC" * 16
+
+
 def _make_envelope(state: KernelState = KernelState.PROCESSING) -> KernelStateEnvelope:
     return KernelStateEnvelope(
         state=state,
@@ -52,6 +84,7 @@ def _make_envelope(state: KernelState = KernelState.PROCESSING) -> KernelStateEn
         total_frames_processed=0,
         state_hash=b"\x01" * 32,
         fault_reason=None,
+        generation_id=_ENVELOPE_GENERATION_ID,
     )
 
 
@@ -81,15 +114,38 @@ def test_module_is_deterministic(module_cls):
 # 2. Replay determinism through the full engine
 # ---------------------------------------------------------------------
 
+# Fixed placeholder generation_id used ONLY to hold identity constant
+# across the two independent engine instances test_module_replay_matches
+# builds below. Deliberately a different constant from
+# _ENVELOPE_GENERATION_ID above -- these two are conceptually unrelated
+# (one is a throwaway envelope field, this one is a shared identity two
+# real engines must agree on) and keeping them visually distinct in a
+# debugger avoids conflating them.
+_REPLAY_GENERATION_ID = b"\xDD" * 16
+
+
 @pytest.mark.parametrize("module_cls", MODULES_UNDER_TEST)
 def test_module_replay_matches(module_cls):
     """
     Requirement 1 (extended): determinism must hold not just for direct
     execute() calls, but when driven through DeterministicExecutionEngine
     across two independent engine instances.
+
+    generation_id: both run() calls below use
+    DeterministicExecutionEngine.with_generation() with the SAME fixed
+    _REPLAY_GENERATION_ID, rather than ordinary construction (which would
+    mint a genuinely different random generation_id per call). This test
+    is specifically about proving computational determinism GIVEN the
+    same generation -- two ordinary, independently-constructed engines
+    are, by design, two different generations, and comparing hashes
+    across those would be comparing two different lifetimes, not testing
+    whether the module itself behaves deterministically.
     """
     def run():
-        engine = DeterministicExecutionEngine(module=module_cls())
+        engine = DeterministicExecutionEngine.with_generation(
+            generation_id=_REPLAY_GENERATION_ID,
+            module=module_cls(),
+        )
         engine.initialize()
         _, result = engine.process_frame(_make_frame(seq_id=0, seed_val=1.5))
         return result.module_hash

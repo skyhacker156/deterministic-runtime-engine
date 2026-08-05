@@ -1,6 +1,29 @@
 """
 Deterministic Execution Engine & State Evolution Operator - Sentinel Framework
 
+v2.7 (with_generation): added DeterministicExecutionEngine.with_generation(),
+a test/verification-only alternate constructor that seeds the engine's
+underlying KernelStateMachine via KernelStateMachine.from_history() with
+a caller-supplied generation_id, instead of __init__'s ordinary fresh
+random genesis. Exists specifically so code comparing behavior ACROSS
+two independently-constructed engine instances (e.g.
+check_replay_matches in module_compliance_checks.py,
+test_replay_equivalence_determinism) can hold generation identity fixed
+and constant across both, proving genuine computational determinism
+given the SAME generation -- rather than incidentally comparing two
+different generations and mistaking that difference for a bug. Same
+"production mints, restoration accepts" split as
+KernelStateMachine.from_history() itself: __init__ still never accepts
+a generation_id and never will.
+
+v2.6 (generation_id wiring): the engine already captures prior_envelope
+(a KernelStateEnvelope) before authorizing and dispatching each frame --
+this version threads prior_envelope.generation_id into BOTH the
+DecisionRecord and the ExecutionAuditRecord it constructs for that
+frame. No new coupling: the engine already had this value in scope at
+exactly the right point; this only threads it into two constructor
+calls that previously omitted it. See GENERATION_ID_MIGRATION_NOTE.md.
+
 v2.5: DecisionRecord history. The engine now records exactly one
 DecisionRecord per execution attempt that reaches the authorization
 boundary, whenever an authorizer is attached — for both allowed and
@@ -70,6 +93,53 @@ class DeterministicExecutionEngine:
         self._audit_log: List[ExecutionAuditRecord] = []
         self._decision_log: List[DecisionRecord] = []
 
+    @classmethod
+    def with_generation(
+        cls,
+        generation_id: bytes,
+        module: Optional[ExecutionModule] = None,
+        authorizer: Optional[Any] = None,
+    ) -> "DeterministicExecutionEngine":
+        """
+        Test/verification-only alternate constructor. Builds an engine
+        whose underlying KernelStateMachine is seeded with an explicit,
+        caller-supplied generation_id via KernelStateMachine.from_history(),
+        rather than minting a fresh random one the way ordinary __init__
+        does.
+
+        The resulting engine still starts UNINITIALIZED and still
+        requires a normal initialize() call afterward -- this only fixes
+        WHICH generation_id that genesis will carry; it does not skip
+        genesis itself, and it does not touch __init__'s behavior for
+        any other caller. ordinary DeterministicExecutionEngine()
+        construction is completely unaffected by this method's
+        existence.
+
+        Use this when comparing behavior ACROSS two or more independently
+        -constructed engine instances and the comparison is meant to
+        prove computational determinism given the SAME generation --
+        e.g. two calls to a run() helper that each build a fresh engine
+        and are expected to produce identical hashes. Without this,
+        two ordinary DeterministicExecutionEngine() instances are, by
+        design, two different generations (see
+        KernelStateMachine.__init__ / from_history() docstrings), and
+        comparing hashes across them is comparing two different
+        lifetimes, not testing determinism.
+        """
+        instance = cls.__new__(cls)
+        instance._state_machine = KernelStateMachine.from_history(
+            generation_id=generation_id,
+            state=KernelState.UNINITIALIZED,
+            last_processed_seq=-1,
+            total_frames_processed=0,
+            fault_reason=None,
+        )
+        instance._module = module
+        instance._authorizer = authorizer
+        instance._audit_log = []
+        instance._decision_log = []
+        return instance
+
     @property
     def state_machine(self) -> KernelStateMachine:
         return self._state_machine
@@ -131,6 +201,10 @@ class DeterministicExecutionEngine:
         # state mutation — matching v2.4's "denial leaves kernel state
         # untouched" behavior. The record itself is not kernel state; it's
         # decision history, appended regardless of the outcome.
+        #
+        # generation_id (v2.6): sourced from prior_envelope, the SAME
+        # envelope this frame's audit record (if any) will also draw
+        # generation_id from — both describe the same kernel snapshot.
         decision = None
         if self._authorizer is not None and self._module is not None:
             decision = self._authorizer.authorize(self._module.module_id)
@@ -140,6 +214,7 @@ class DeterministicExecutionEngine:
                 module_id=self._module.module_id,
                 allowed=decision.allowed,
                 decision_hash=decision.decision_hash,
+                generation_id=prior_envelope.generation_id,
             )
             self._decision_log.append(record)
 
@@ -164,6 +239,7 @@ class DeterministicExecutionEngine:
                     frame_timestamp_ns=frame.timestamp_ns,
                     module_id=self._module.module_id,
                     result=result,
+                    generation_id=prior_envelope.generation_id,
                 )
                 self._audit_log.append(audit_record)
 
