@@ -5,6 +5,7 @@ Unit Test Suite for Deterministic Execution Engine
 
 import hashlib
 import struct
+import uuid
 import numpy as np
 import pytest
 
@@ -81,8 +82,18 @@ def test_out_of_order_and_duplicate_sequence_rejection():
 
 
 def test_replay_equivalence_determinism():
+    """
+    generation_id is held fixed across both run_sequence() calls below --
+    two ordinary DeterministicExecutionEngine() instances are, by design,
+    two different kernel generations, so comparing state_hash across them
+    would be comparing two different lifetimes rather than proving
+    determinism given the same one. See
+    DeterministicExecutionEngine.with_generation()'s own docstring.
+    """
+    shared_generation_id = uuid.uuid4().bytes
+
     def run_sequence():
-        eng = DeterministicExecutionEngine()
+        eng = DeterministicExecutionEngine.with_generation(generation_id=shared_generation_id)
         eng.initialize()
         e0, _ = eng.process_frame(create_valid_frame(seq_id=0, seed_val=10.0))
         e1, _ = eng.process_frame(create_valid_frame(seq_id=1, seed_val=20.0))

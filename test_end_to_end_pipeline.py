@@ -11,6 +11,7 @@ RawVentTelemetryPacket -> VentAdapterContract -> BridgeIntegrator -> [Seam Conve
 import time
 import hashlib
 import struct
+import uuid
 import numpy as np
 import pytest
 
@@ -120,12 +121,26 @@ def test_end_to_end_pipeline_scrambled_ingestion_to_verified_execution():
 
 
 def test_end_to_end_replay_determinism():
-    """Verify end-to-end replay determinism from scrambled raw packets down to execution hashes."""
+    """
+    Verify end-to-end replay determinism from scrambled raw packets down to
+    execution hashes.
+
+    generation_id is held fixed across both run_pipeline() calls below --
+    two ordinary DeterministicExecutionEngine() instances are, by design,
+    two different kernel generations, so comparing module hashes across
+    them would be comparing two different lifetimes rather than proving
+    determinism given the same one. See
+    DeterministicExecutionEngine.with_generation()'s own docstring.
+    """
+    shared_generation_id = uuid.uuid4().bytes
+
     def run_pipeline():
         adapter = VentAdapterContract()
         bridge = BridgeIntegrator()
         barrier = DeterministicOrderingBarrier(max_window_size=16)
-        engine = DeterministicExecutionEngine(module=PhoenixAExecutionModule())
+        engine = DeterministicExecutionEngine.with_generation(
+            generation_id=shared_generation_id, module=PhoenixAExecutionModule()
+        )
         engine.initialize()  # Initialize the engine state machine from UNINITIALIZED
 
         base_time = 1700000000.0

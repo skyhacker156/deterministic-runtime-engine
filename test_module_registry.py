@@ -11,6 +11,7 @@ registered — activation is a separate, explicit step. Every test that
 needs a resolvable module now calls activate() before resolve().
 """
 
+import uuid
 import pytest
 
 from execution_module_registry import (
@@ -225,14 +226,25 @@ def test_resolution_replay_is_deterministic():
     Given the same registry state, activating and resolving a module by
     ID and running it through the engine twice must produce an identical
     audit chain — not just identical objects at the registry boundary.
+
+    generation_id is held fixed across both run() calls below -- two
+    ordinary DeterministicExecutionEngine() instances are, by design, two
+    different kernel generations, so comparing audit_hash across them
+    would be comparing two different lifetimes rather than proving
+    determinism given the same one. See
+    DeterministicExecutionEngine.with_generation()'s own docstring.
     """
+    shared_generation_id = uuid.uuid4().bytes
+
     def run():
         registry = ExecutionModuleRegistry()
         registry.register(PhoenixAExecutionModule())
         registry.activate("phoenix_a_core_v1")
         module = registry.resolve("phoenix_a_core_v1")
 
-        engine = DeterministicExecutionEngine(module=module)
+        engine = DeterministicExecutionEngine.with_generation(
+            generation_id=shared_generation_id, module=module
+        )
         engine.initialize()
 
         import numpy as np

@@ -12,6 +12,7 @@ invariant (the engine module must never import policy internals).
 
 import ast
 import inspect
+import uuid
 import numpy as np
 import pytest
 
@@ -247,7 +248,19 @@ def test_authorized_pipeline_replay_produces_identical_decision_and_audit_hashes
     authorization-integrated execution produces the same execution
     results, decision hashes, AND audit hashes across two fully
     independent runs.
+
+    generation_id is held fixed across both run() calls below -- two
+    ordinary DeterministicExecutionEngine() instances are, by design, two
+    different kernel generations, so comparing hashes across them would
+    be comparing two different lifetimes rather than proving determinism
+    given the same one. See DeterministicExecutionEngine.with_generation()'s
+    own docstring. Note this is unrelated to the fixed generation_id
+    module_compliance_checks.py's check_replay_matches() uses internally
+    during registry.register()'s compliance check -- that's a separate,
+    independent use of the same mechanism for a different purpose.
     """
+    shared_generation_id = uuid.uuid4().bytes
+
     def run():
         registry = ExecutionModuleRegistry()
         registry.register(PhoenixAExecutionModule())
@@ -258,7 +271,9 @@ def test_authorized_pipeline_replay_produces_identical_decision_and_audit_hashes
         authorizer = ExecutionAuthorizer(registry, policy, state)
 
         module = registry.resolve("phoenix_a_core_v1")
-        engine = DeterministicExecutionEngine(module=module, authorizer=authorizer)
+        engine = DeterministicExecutionEngine.with_generation(
+            generation_id=shared_generation_id, module=module, authorizer=authorizer
+        )
         engine.initialize()
 
         decision_hashes = []

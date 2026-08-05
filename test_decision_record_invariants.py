@@ -15,6 +15,7 @@ Also covers backward compatibility, denial recording, and the
 allowed/audit pairing baseline the invariants build on.
 """
 
+import uuid
 import numpy as np
 import pytest
 
@@ -187,9 +188,21 @@ def test_invariant_b_denied_attempts_have_no_matching_audit_record():
 # ---------------------------------------------------------------------
 
 def test_invariant_c_replay_preserves_decision_ordering_and_contents():
+    """
+    generation_id is held fixed across both run() calls below -- two
+    ordinary DeterministicExecutionEngine() instances are, by design, two
+    different kernel generations, so comparing record_hash across them
+    would be comparing two different lifetimes rather than proving
+    determinism given the same one. See
+    DeterministicExecutionEngine.with_generation()'s own docstring.
+    """
+    shared_generation_id = uuid.uuid4().bytes
+
     def run():
         registry, authorizer, module = _make_authorized_setup(max_invocations=10)
-        engine = DeterministicExecutionEngine(module=module, authorizer=authorizer)
+        engine = DeterministicExecutionEngine.with_generation(
+            generation_id=shared_generation_id, module=module, authorizer=authorizer
+        )
         engine.initialize()
 
         for seq_id in range(5):
@@ -209,9 +222,18 @@ def test_invariant_c_replay_preserves_decision_ordering_and_contents():
 
 
 def test_invariant_c_replay_preserves_audit_ordering_and_contents():
+    """
+    generation_id is held fixed across both run() calls below, for the
+    same reason as test_invariant_c_replay_preserves_decision_ordering_and_contents
+    above.
+    """
+    shared_generation_id = uuid.uuid4().bytes
+
     def run():
         registry, authorizer, module = _make_authorized_setup(max_invocations=10)
-        engine = DeterministicExecutionEngine(module=module, authorizer=authorizer)
+        engine = DeterministicExecutionEngine.with_generation(
+            generation_id=shared_generation_id, module=module, authorizer=authorizer
+        )
         engine.initialize()
 
         for seq_id in range(5):

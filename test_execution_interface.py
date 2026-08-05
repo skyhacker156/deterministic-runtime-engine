@@ -4,6 +4,7 @@ Unit Test Suite for Execution Interface & Module Dispatch (test_execution_interf
 
 import hashlib
 import struct
+import uuid
 import numpy as np
 import pytest
 
@@ -105,14 +106,26 @@ def test_module_failure_trips_kernel_into_faulted_state():
 
 
 def test_replay_determinism_with_execution_module():
+    """
+    generation_id is held fixed across both execute_pipeline() calls
+    below -- two ordinary DeterministicExecutionEngine() instances are,
+    by design, two different kernel generations, so comparing state_hash
+    and module_hash across them would be comparing two different
+    lifetimes rather than proving determinism given the same one. See
+    DeterministicExecutionEngine.with_generation()'s own docstring.
+    """
+    shared_generation_id = uuid.uuid4().bytes
+
     def execute_pipeline():
         mod = IdentityTransformModule()
-        eng = DeterministicExecutionEngine(module=mod)
+        eng = DeterministicExecutionEngine.with_generation(
+            generation_id=shared_generation_id, module=mod
+        )
         eng.initialize()
-        
+
         env0, res0 = eng.process_frame(create_dummy_frame(seq_id=0, seed_val=1.2))
         env1, res1 = eng.process_frame(create_dummy_frame(seq_id=1, seed_val=3.4))
-        
+
         return env1.state_hash, res0.module_hash, res1.module_hash
 
     state_hash_1, mod_hash0_1, mod_hash1_1 = execute_pipeline()

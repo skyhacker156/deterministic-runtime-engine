@@ -5,6 +5,7 @@ Unit & Fuzz Test Suite for Phoenix A / ACE Execution Module
 
 import hashlib
 import struct
+import uuid
 import numpy as np
 import pytest
 from hypothesis import given, settings, strategies as st
@@ -32,6 +33,16 @@ def create_dummy_frame(seq_id: int, seed_val: float = 1.0) -> CoreExecutionFrame
     )
 
 
+# Fixed placeholder generation_id for the standalone dummy envelopes built
+# directly in this file below. Each test using it builds exactly ONE
+# envelope and uses it once -- none of them compare across independent
+# DeterministicExecutionEngine instances, so a fixed constant is safe
+# here. See test_phoenix_a_module_replay_determinism below for the one
+# test in this file that DOES span two independent instances, which uses
+# a separately-generated shared generation_id instead of this constant.
+_DUMMY_ENVELOPE_GENERATION_ID = b"\xEE" * 16
+
+
 def test_phoenix_a_module_direct_execution():
     module = PhoenixAExecutionModule()
     assert module.module_id == "phoenix_a_core_v1"
@@ -42,7 +53,8 @@ def test_phoenix_a_module_direct_execution():
         last_processed_seq=-1,
         total_frames_processed=0,
         state_hash=b"\x01" * 32,
-        fault_reason=None
+        fault_reason=None,
+        generation_id=_DUMMY_ENVELOPE_GENERATION_ID,
     )
 
     result = module.execute(frame, dummy_envelope)
@@ -63,7 +75,8 @@ def test_phoenix_a_module_near_zero_norm_guard():
         last_processed_seq=-1,
         total_frames_processed=0,
         state_hash=b"\x02" * 32,
-        fault_reason=None
+        fault_reason=None,
+        generation_id=_DUMMY_ENVELOPE_GENERATION_ID,
     )
 
     # Subnormal payload (1e-300) where naive division would blow up
@@ -123,7 +136,8 @@ def test_fuzz_phoenix_a_module_numerical_stability(payload: np.ndarray, seq_id: 
         last_processed_seq=seq_id - 1,
         total_frames_processed=seq_id,
         state_hash=hashlib.sha256(struct.pack(">Q", seq_id)).digest(),
-        fault_reason=None
+        fault_reason=None,
+        generation_id=_DUMMY_ENVELOPE_GENERATION_ID,
     )
     frame = CoreExecutionFrame(
         seq_id=seq_id,
@@ -157,9 +171,21 @@ def test_phoenix_a_module_integration_with_engine():
 
 
 def test_phoenix_a_module_replay_determinism():
+    """
+    generation_id is held fixed across both run_pipeline() calls below --
+    two ordinary DeterministicExecutionEngine() instances are, by design,
+    two different kernel generations, so comparing module_hash across
+    them would be comparing two different lifetimes rather than proving
+    determinism given the same one. See
+    DeterministicExecutionEngine.with_generation()'s own docstring.
+    """
+    shared_generation_id = uuid.uuid4().bytes
+
     def run_pipeline():
         mod = PhoenixAExecutionModule()
-        eng = DeterministicExecutionEngine(module=mod)
+        eng = DeterministicExecutionEngine.with_generation(
+            generation_id=shared_generation_id, module=mod
+        )
         eng.initialize()
 
         _, res0 = eng.process_frame(create_dummy_frame(seq_id=0, seed_val=0.5))

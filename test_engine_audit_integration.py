@@ -9,6 +9,7 @@ existing execution, sequencing, or fault behavior.
 
 import hashlib
 import struct
+import uuid
 import numpy as np
 import pytest
 
@@ -134,10 +135,23 @@ def test_no_audit_record_without_registered_module():
 
 
 def test_audit_log_replay_determinism():
-    """Two independent engines processing identical frames must produce
-    identical audit_hash sequences."""
+    """
+    Two independent engines processing identical frames must produce
+    identical audit_hash sequences.
+
+    generation_id is held fixed across both run() calls below -- two
+    ordinary DeterministicExecutionEngine() instances are, by design, two
+    different kernel generations, so comparing audit_hash across them
+    would be comparing two different lifetimes rather than proving
+    determinism given the same one. See
+    DeterministicExecutionEngine.with_generation()'s own docstring.
+    """
+    shared_generation_id = uuid.uuid4().bytes
+
     def run():
-        engine = DeterministicExecutionEngine(module=IdentityModule())
+        engine = DeterministicExecutionEngine.with_generation(
+            generation_id=shared_generation_id, module=IdentityModule()
+        )
         engine.initialize()
         for i in range(3):
             engine.process_frame(create_frame(seq_id=i, timestamp_ns=1_000_000 + i, seed_val=float(i)))
