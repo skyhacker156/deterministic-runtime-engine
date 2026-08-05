@@ -170,6 +170,7 @@ def test_records_appended_after_a_fault_are_marked_unverified_not_guessed():
             sequence_id=0, input_hash=h(b"a"), prior_state_hash=h(b"b"),
             output_hash=h(b"c"), module_id="fails_on_second_module",
             success=True, frame_timestamp_ns=9000, error_message=None,
+            generation_id=engine.state_machine.generation_id,
         ),
     )
     full_history = tuple(engine.audit_log) + fabricated_post_reset_records
@@ -203,6 +204,7 @@ def test_tampered_prior_state_hash_is_detected():
         success=original[1].success,
         frame_timestamp_ns=original[1].frame_timestamp_ns,
         error_message=original[1].error_message,
+        generation_id=original[1].generation_id,
     )
     tampered_history = (original[0], tampered_second)
 
