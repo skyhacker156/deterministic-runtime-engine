@@ -64,6 +64,13 @@ def _run_isolated_verification_script(repo_root: str) -> subprocess.CompletedPro
     in the same run, several of which legitimately DO import the
     runtime modules), which would produce false positives having
     nothing to do with causal_history_verifier.py's own behavior.
+
+    generation_id: the inline DecisionRecord/ExecutionAuditRecord
+    construction below uses a fixed 16-byte placeholder (gen_id) --
+    this script tests import isolation, not generation identity, so a
+    single fixed value is fine. Deliberately built with a plain byte
+    literal rather than reusing h(), since h() produces a 32-byte
+    SHA-256 digest and generation_id must be exactly 16 bytes.
     """
     script = textwrap.dedent(f"""
         import sys
@@ -81,6 +88,8 @@ def _run_isolated_verification_script(repo_root: str) -> subprocess.CompletedPro
         def h(seed):
             return hashlib.sha256(seed).digest()
 
+        gen_id = b"\\x99" * 16
+
         with tempfile.TemporaryDirectory() as tmpdir:
             reg_path = os.path.join(tmpdir, "registration.jsonl")
             dec_path = os.path.join(tmpdir, "decision.jsonl")
@@ -93,12 +102,14 @@ def _run_isolated_verification_script(repo_root: str) -> subprocess.CompletedPro
             append_decision_record(dec_path, DecisionRecord(
                 sequence_id=1, module_id="phoenix_a_core_v1",
                 allowed=True, decision_hash=h(b"d"),
+                generation_id=gen_id,
             ))
             append_audit_record(aud_path, ExecutionAuditRecord(
                 sequence_id=1, input_hash=h(b"in"),
                 prior_state_hash=h(b"prior"), output_hash=h(b"out"),
                 module_id="phoenix_a_core_v1", success=True,
                 frame_timestamp_ns=1000, error_message=None,
+                generation_id=gen_id,
             ))
 
             from causal_history_verifier import verify_causal_history

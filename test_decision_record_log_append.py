@@ -33,6 +33,13 @@ def _hash32(seed: bytes) -> bytes:
     return hashlib.sha256(seed).digest()
 
 
+# Fixed placeholder generation_id for records built by make_record()
+# below. This file tests append/read-back log mechanics, not generation
+# identity, so a single fixed constant shared by every record in every
+# test is fine here.
+_GEN_ID = b"\x33" * 16
+
+
 def make_record(sequence_id=0, module_id="phoenix_a_core_v1", allowed=True,
                  decision_hash_seed=b"seed"):
     return DecisionRecord(
@@ -40,6 +47,7 @@ def make_record(sequence_id=0, module_id="phoenix_a_core_v1", allowed=True,
         module_id=module_id,
         allowed=allowed,
         decision_hash=_hash32(decision_hash_seed),
+        generation_id=_GEN_ID,
     )
 
 

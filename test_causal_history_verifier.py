@@ -34,6 +34,14 @@ def _hash32(seed: bytes) -> bytes:
     return hashlib.sha256(seed).digest()
 
 
+# Fixed placeholder generation_id for records built by the helpers below.
+# This file is testing causal linkage (decision->audit->registration),
+# not generation identity, so a single fixed constant shared by every
+# record in every test is fine -- none of these tests compare across
+# independent kernel generations.
+_GEN_ID = b"\x11" * 16
+
+
 @pytest.fixture
 def three_log_paths():
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -59,6 +67,7 @@ def _make_decision(sequence_id, module_id, allowed=True, hash_seed=b"d"):
         module_id=module_id,
         allowed=allowed,
         decision_hash=_hash32(hash_seed),
+        generation_id=_GEN_ID,
     )
 
 
@@ -73,6 +82,7 @@ def _make_audit(sequence_id, module_id, success=True, error_message=None,
         success=success,
         frame_timestamp_ns=1000,
         error_message=error_message,
+        generation_id=_GEN_ID,
     )
 
 

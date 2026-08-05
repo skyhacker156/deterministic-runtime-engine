@@ -36,6 +36,13 @@ def _hash32(seed: bytes) -> bytes:
     return hashlib.sha256(seed).digest()
 
 
+# Fixed placeholder generation_id for records built in this file. This
+# file tests JSON round-trip persistence, not generation identity, so a
+# single fixed constant shared by every record in every test is fine
+# here.
+_GEN_ID = b"\x44" * 16
+
+
 def make_decision_record(sequence_id=0, module_id="phoenix_a_core_v1",
                           allowed=True, decision_hash_seed=b"seed"):
     return DecisionRecord(
@@ -43,6 +50,7 @@ def make_decision_record(sequence_id=0, module_id="phoenix_a_core_v1",
         module_id=module_id,
         allowed=allowed,
         decision_hash=_hash32(decision_hash_seed),
+        generation_id=_GEN_ID,
     )
 
 
@@ -125,6 +133,7 @@ def test_fuzz_allowed_decisions_round_trip(sequence_id, module_id, hash_seed):
         module_id=module_id,
         allowed=True,
         decision_hash=_hash32(hash_seed),
+        generation_id=_GEN_ID,
     )
     restored = decision_record_from_json(decision_record_to_json(original))
     assert restored.decision_hash == original.decision_hash
@@ -142,6 +151,7 @@ def test_fuzz_denied_decisions_round_trip(sequence_id, module_id, hash_seed):
         module_id=module_id,
         allowed=False,
         decision_hash=_hash32(hash_seed),
+        generation_id=_GEN_ID,
     )
     restored = decision_record_from_json(decision_record_to_json(original))
     assert restored.decision_hash == original.decision_hash
@@ -213,6 +223,7 @@ def test_malformed_decision_hash_hex_raises():
         "module_id": "phoenix_a_core_v1",
         "allowed": True,
         "decision_hash": "deadbeef",  # 4 bytes, not 32
+        "generation_id": _GEN_ID.hex(),
     }
     with pytest.raises(DecisionRecordValidationError):
         decision_record_from_json(json.dumps(payload))

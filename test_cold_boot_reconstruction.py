@@ -27,6 +27,14 @@ def _hash32(seed: bytes) -> bytes:
     return hashlib.sha256(seed).digest()
 
 
+# Fixed placeholder generation_id for records built directly in this
+# file. These tests are about cold-boot reconstruction logic (loading,
+# ordering, provenance cross-referencing), not generation identity, so
+# a single fixed constant shared across every record in every test is
+# fine here.
+_GEN_ID = b"\x22" * 16
+
+
 @pytest.fixture
 def three_log_paths():
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -52,7 +60,8 @@ def _build_clean_scenario(paths):
     append_decision_record(
         paths["decision"],
         DecisionRecord(sequence_id=1, module_id="phoenix_a_core_v1",
-                        allowed=True, decision_hash=_hash32(b"d1")),
+                        allowed=True, decision_hash=_hash32(b"d1"),
+                        generation_id=_GEN_ID),
     )
     append_audit_record(
         paths["audit"],
@@ -61,12 +70,14 @@ def _build_clean_scenario(paths):
             prior_state_hash=_hash32(b"p1"), output_hash=_hash32(b"o1"),
             module_id="phoenix_a_core_v1", success=True,
             frame_timestamp_ns=1000, error_message=None,
+            generation_id=_GEN_ID,
         ),
     )
     append_decision_record(
         paths["decision"],
         DecisionRecord(sequence_id=2, module_id="phoenix_a_core_v1",
-                        allowed=True, decision_hash=_hash32(b"d2")),
+                        allowed=True, decision_hash=_hash32(b"d2"),
+                        generation_id=_GEN_ID),
     )
     append_audit_record(
         paths["audit"],
@@ -75,12 +86,14 @@ def _build_clean_scenario(paths):
             prior_state_hash=_hash32(b"p2"), output_hash=_hash32(b"o2"),
             module_id="phoenix_a_core_v1", success=True,
             frame_timestamp_ns=2000, error_message=None,
+            generation_id=_GEN_ID,
         ),
     )
     append_decision_record(
         paths["decision"],
         DecisionRecord(sequence_id=3, module_id="phoenix_a_core_v1",
-                        allowed=False, decision_hash=_hash32(b"d3")),
+                        allowed=False, decision_hash=_hash32(b"d3"),
+                        generation_id=_GEN_ID),
     )
 
 
@@ -139,12 +152,14 @@ def test_shall_3_ordering_verified_not_just_loaded(three_log_paths):
     append_decision_record(
         three_log_paths["decision"],
         DecisionRecord(sequence_id=5, module_id="phoenix_a_core_v1",
-                        allowed=True, decision_hash=_hash32(b"d5")),
+                        allowed=True, decision_hash=_hash32(b"d5"),
+                        generation_id=_GEN_ID),
     )
     append_decision_record(
         three_log_paths["decision"],
         DecisionRecord(sequence_id=2, module_id="phoenix_a_core_v1",
-                        allowed=True, decision_hash=_hash32(b"d2")),
+                        allowed=True, decision_hash=_hash32(b"d2"),
+                        generation_id=_GEN_ID),
     )
     open(three_log_paths["audit"], "w", encoding="utf-8").close()
 
@@ -172,7 +187,8 @@ def test_shall_4_decision_ancestry_and_registration_provenance_checked(three_log
     append_decision_record(
         three_log_paths["decision"],
         DecisionRecord(sequence_id=1, module_id="ghost_module",
-                        allowed=True, decision_hash=_hash32(b"d")),
+                        allowed=True, decision_hash=_hash32(b"d"),
+                        generation_id=_GEN_ID),
     )
     append_audit_record(
         three_log_paths["audit"],
@@ -181,6 +197,7 @@ def test_shall_4_decision_ancestry_and_registration_provenance_checked(three_log
             prior_state_hash=_hash32(b"p"), output_hash=_hash32(b"o"),
             module_id="ghost_module", success=True,
             frame_timestamp_ns=1000, error_message=None,
+            generation_id=_GEN_ID,
         ),
     )
 

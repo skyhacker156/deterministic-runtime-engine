@@ -21,6 +21,12 @@ st_module_id = st.text(min_size=1, max_size=50).filter(lambda s: s.strip() != ""
 st_timestamp_ns = st.integers(min_value=0, max_value=2**64 - 1)
 st_valid_error_message = st.text(min_size=1, max_size=200).filter(lambda s: s.strip() != "")
 
+# Fixed placeholder generation_id for records built in this file. This
+# file tests ExecutionAuditRecord's own construction/validation/hash
+# behavior, not generation identity, so a single fixed constant shared
+# by every record in every test is fine here.
+_GEN_ID = b"\x77" * 16
+
 
 def make_record(seed_input=b"a", seed_prior=b"b", seed_output=b"c",
                  seq_id=0, module_id="phoenix_a", success=True,
@@ -34,6 +40,7 @@ def make_record(seed_input=b"a", seed_prior=b"b", seed_output=b"c",
         success=success,
         frame_timestamp_ns=frame_timestamp_ns,
         error_message=error_message,
+        generation_id=_GEN_ID,
     )
 
 
@@ -73,6 +80,7 @@ def test_malformed_hash_field_rejected():
             module_id="phoenix_a",
             success=True,
             frame_timestamp_ns=1000,
+            generation_id=_GEN_ID,
         )
 
 
@@ -189,6 +197,7 @@ def test_from_execution_derives_fields_from_result():
         frame_timestamp_ns=1_000_000,
         module_id="phoenix_a",
         result=result,
+        generation_id=_GEN_ID,
     )
 
     assert rec.success == result.success

@@ -38,6 +38,13 @@ def _hash32(seed: bytes) -> bytes:
     return hashlib.sha256(seed).digest()
 
 
+# Fixed placeholder generation_id for records built in this file. This
+# file tests JSON round-trip persistence, not generation identity, so a
+# single fixed constant shared by every record in every test is fine
+# here.
+_GEN_ID = b"\x55" * 16
+
+
 def make_audit_record(sequence_id=0, input_seed=b"in", prior_seed=b"prior",
                        output_seed=b"out", module_id="phoenix_a_core_v1",
                        success=True, frame_timestamp_ns=1000, error_message=None):
@@ -50,6 +57,7 @@ def make_audit_record(sequence_id=0, input_seed=b"in", prior_seed=b"prior",
         success=success,
         frame_timestamp_ns=frame_timestamp_ns,
         error_message=error_message,
+        generation_id=_GEN_ID,
     )
 
 
@@ -149,6 +157,7 @@ def test_fuzz_success_records_round_trip(
         success=True,
         frame_timestamp_ns=frame_timestamp_ns,
         error_message=None,
+        generation_id=_GEN_ID,
     )
     restored = audit_record_from_json(audit_record_to_json(original))
     assert restored.input_hash == original.input_hash
@@ -179,6 +188,7 @@ def test_fuzz_failure_records_round_trip(
         success=False,
         frame_timestamp_ns=frame_timestamp_ns,
         error_message=error_message,
+        generation_id=_GEN_ID,
     )
     restored = audit_record_from_json(audit_record_to_json(original))
     assert restored.input_hash == original.input_hash
@@ -269,6 +279,7 @@ def test_success_with_error_message_rejected_on_reconstruction():
         "success": True,
         "frame_timestamp_ns": 1000,
         "error_message": "should not be here",
+        "generation_id": _GEN_ID.hex(),
     }
     with pytest.raises(ValueError):
         audit_record_from_json(json.dumps(payload))
@@ -284,6 +295,7 @@ def test_failure_without_error_message_rejected_on_reconstruction():
         "success": False,
         "frame_timestamp_ns": 1000,
         "error_message": None,
+        "generation_id": _GEN_ID.hex(),
     }
     with pytest.raises(ValueError):
         audit_record_from_json(json.dumps(payload))
