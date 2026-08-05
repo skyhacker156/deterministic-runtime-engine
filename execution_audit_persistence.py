@@ -15,6 +15,13 @@ record never recomputes them, only observes them. Persistence must
 therefore preserve all three byte-for-byte, unchanged, the same way
 DecisionRecord.decision_hash had to be preserved opaque.
 
+generation_id is the same category: OPAQUE from this module's
+perspective, sourced from the kernel generation this frame executed
+under, never recomputed here. It participates in audit_hash's
+derivation, so dropping it on the round-trip would silently break
+audit_hash reconstruction the same way dropping any of the three main
+hash fields would -- not a hash-logic bug, a missing input.
+
 audit_hash itself IS derived (computed once in __post_init__ from every
 field except error_message's None case) and must recompute identically
 on reconstruction -- same category of check as DecisionRecord.record_hash
@@ -41,6 +48,7 @@ def audit_record_to_json(record: ExecutionAuditRecord) -> str:
         "success": record.success,
         "frame_timestamp_ns": record.frame_timestamp_ns,
         "error_message": record.error_message,
+        "generation_id": record.generation_id.hex(),
     }
     return json.dumps(payload, sort_keys=True)
 
@@ -61,4 +69,5 @@ def audit_record_from_json(json_str: str) -> ExecutionAuditRecord:
         success=payload["success"],
         frame_timestamp_ns=payload["frame_timestamp_ns"],
         error_message=payload["error_message"],
+        generation_id=bytes.fromhex(payload["generation_id"]),
     )
