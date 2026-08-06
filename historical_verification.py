@@ -141,7 +141,28 @@ def verify_decision_record_line(payload: Dict) -> HistoricalVerificationResult:
     DecisionRecord line. Recognition (historical_schema_recognition.py)
     always runs first and is always checked before any verification is
     attempted -- see the module docstring's contract.
+
+    Guards against non-dict-shaped input explicitly (added after
+    VERIFICATION_PIPELINE_MODEL.md's own precision review flagged this
+    as an uncaught-exception gap): a payload that isn't a dict at all
+    cannot be classified, and classify_decision_record_payload() would
+    raise AttributeError on payload.keys() rather than returning any of
+    the four defined outcomes. CORRUPT is the correct semantic answer
+    here -- an unparseable shape matches neither the current nor any
+    known historical schema -- so this is checked explicitly before
+    classification runs, not left to an uncaught exception.
     """
+    if not isinstance(payload, dict):
+        return HistoricalVerificationResult(
+            record_type="DecisionRecord",
+            schema_family=None,
+            outcome=VerificationOutcome.CORRUPT,
+            detail=(
+                f"Payload is not a dict-shaped object (got "
+                f"{type(payload).__name__}); cannot classify or verify."
+            ),
+        )
+
     classification = classify_decision_record_payload(payload)
 
     if classification.recognition == SchemaRecognition.RECOGNIZED_HISTORICAL_SCHEMA:
@@ -180,7 +201,21 @@ def verify_decision_record_line(payload: Dict) -> HistoricalVerificationResult:
 
 
 def verify_execution_audit_record_line(payload: Dict) -> HistoricalVerificationResult:
-    """Same shape as verify_decision_record_line(), for ExecutionAuditRecord."""
+    """
+    Same shape as verify_decision_record_line(), for ExecutionAuditRecord,
+    including the same non-dict-input guard.
+    """
+    if not isinstance(payload, dict):
+        return HistoricalVerificationResult(
+            record_type="ExecutionAuditRecord",
+            schema_family=None,
+            outcome=VerificationOutcome.CORRUPT,
+            detail=(
+                f"Payload is not a dict-shaped object (got "
+                f"{type(payload).__name__}); cannot classify or verify."
+            ),
+        )
+
     classification = classify_execution_audit_record_payload(payload)
 
     if classification.recognition == SchemaRecognition.RECOGNIZED_HISTORICAL_SCHEMA:

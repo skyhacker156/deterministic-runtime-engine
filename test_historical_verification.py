@@ -156,6 +156,25 @@ def test_corrupt_execution_audit_record_is_corrupt():
     assert result.schema_family is None
 
 
+def test_non_dict_decision_record_payload_is_corrupt_not_uncaught_exception():
+    """
+    The exact gap VERIFICATION_PIPELINE_MODEL.md's own precision review
+    found: a payload that isn't dict-shaped at all must resolve to
+    CORRUPT, not raise AttributeError out of classification.
+    """
+    for bad_payload in (None, "not a dict", ["also", "not", "a", "dict"], 42):
+        result = verify_decision_record_line(bad_payload)
+        assert result.outcome == VerificationOutcome.CORRUPT
+        assert result.schema_family is None
+
+
+def test_non_dict_execution_audit_record_payload_is_corrupt_not_uncaught_exception():
+    for bad_payload in (None, "not a dict", ["also", "not", "a", "dict"], 42):
+        result = verify_execution_audit_record_line(bad_payload)
+        assert result.outcome == VerificationOutcome.CORRUPT
+        assert result.schema_family is None
+
+
 # ---------------------------------------------------------------------
 # Structural guards -- the actual proof the contract is enforced, not
 # just followed by the two functions above
