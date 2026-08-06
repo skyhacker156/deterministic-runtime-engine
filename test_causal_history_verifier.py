@@ -223,6 +223,57 @@ def test_audit_record_matching_only_a_denied_decision_is_caught(three_log_paths)
     assert any("it was DENIED" in f for f in report.failures)
 
 
+def test_decision_and_audit_sharing_sequence_and_module_but_different_generation_is_caught(three_log_paths):
+    """
+    PROVENANCE_GRAPH_MODEL.md's headline finding, closed. Before this
+    fix, Check 1 joined purely on (sequence_id, module_id) -- a
+    DecisionRecord from one kernel generation and an
+    ExecutionAuditRecord from a DIFFERENT generation, sharing that
+    same key, would have been incorrectly treated as causally linked.
+    This is plausible in practice, not just in theory: sequence_id
+    resets to 0 after every administrative reset, and the same
+    module_id commonly persists across a reset. This test constructs
+    exactly that scenario and confirms it is now caught, with a
+    diagnostic message distinguishing "generation mismatch" from
+    "no decision at all" -- mirroring Check 4's existing pattern for
+    the same kind of distinction.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("phoenix_a_core_v1")
+    )
+    append_decision_record(
+        three_log_paths["decision"],
+        DecisionRecord(
+            sequence_id=5, module_id="phoenix_a_core_v1", allowed=True,
+            decision_hash=_hash32(b"gen_a_decision"), generation_id=_GEN_ID,
+        ),
+    )
+    append_audit_record(
+        three_log_paths["audit"],
+        ExecutionAuditRecord(
+            sequence_id=5, input_hash=_hash32(b"in"), prior_state_hash=_hash32(b"prior"),
+            output_hash=_hash32(b"out"), module_id="phoenix_a_core_v1", success=True,
+            frame_timestamp_ns=1000, error_message=None, generation_id=_GEN_ID_OTHER,
+        ),
+    )
+
+    report = verify_causal_history(
+        three_log_paths["registration"], three_log_paths["decision"], three_log_paths["audit"]
+    )
+
+    assert report.passed is False
+    assert any(
+        "DIFFERENT generation_id" in f and "Generation mismatch" in f
+        for f in report.failures
+    )
+    # Confirms this is diagnosed as a generation mismatch specifically,
+    # not collapsed into the generic "no decision at all" message.
+    assert not any(
+        "no corresponding allowed DecisionRecord in the decision log at all" in f
+        for f in report.failures
+    )
+
+
 # ---------------------------------------------------------------------
 # 3. Failure injection: Check 2 (sequence ordering)
 # ---------------------------------------------------------------------

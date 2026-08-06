@@ -20,10 +20,23 @@ what is actually persisted today):
 
 1. Decision ancestry: every ExecutionAuditRecord in the audit log has
    a corresponding DecisionRecord in the decision log, joined on
-   (sequence_id, module_id), with allowed=True. This is the disk-only
-   re-derivation of the in-memory Invariant B already proven in
-   test_decision_record_invariants.py
+   (sequence_id, module_id, generation_id), with allowed=True. This is
+   the disk-only re-derivation of the in-memory Invariant B already
+   proven in test_decision_record_invariants.py
    (test_invariant_b_every_audit_record_has_exactly_one_preceding_allowed_decision).
+
+   v2 (2026-08-06): generation_id added to the join key -- see
+   PROVENANCE_GRAPH_MODEL.md's headline finding. Previously joined on
+   (sequence_id, module_id) only, even though both record types carry
+   generation_id -- the same class of gap Check 4 was deliberately
+   built to avoid for a different record pair. Since sequence_id
+   resets to 0 after every administrative reset and module_id commonly
+   persists across a reset, a DecisionRecord from one generation and
+   an ExecutionAuditRecord from a different generation could
+   previously share (sequence_id, module_id) and be incorrectly
+   treated as causally linked. Fixed by mirroring Check 4's join-key
+   shape, including its "generation mismatch" vs. "no corresponding
+   record" diagnostic distinction.
 
 2. Per-module sequence ordering: within each module_id, sequence_ids
    appear in non-decreasing order as recorded, separately in the
@@ -165,31 +178,60 @@ class CausalHistoryReport:
 
 def _check_decision_ancestry(decision_records, audit_records) -> List[str]:
     """
-    Check 1: every audit record's (sequence_id, module_id) has a
-    matching, allowed decision record.
+    Check 1: every audit record's (sequence_id, module_id, generation_id)
+    has a matching, allowed decision record.
+
+    v2 (2026-08-06): generation_id added to the join key. Previously
+    joined on (sequence_id, module_id) only -- see this module's own
+    docstring and PROVENANCE_GRAPH_MODEL.md for why that was a real
+    gap, not just a theoretical one. Mirrors
+    _check_policy_decision_provenance()'s existing "generation
+    mismatch" vs. "no corresponding record" diagnostic distinction --
+    a decision existing at the same (sequence_id, module_id) but under
+    a different generation_id is a materially different failure from
+    no decision existing at all, and gets its own message.
     """
     failures = []
     allowed_keys = {
-        (d.sequence_id, d.module_id) for d in decision_records if d.allowed
+        (d.sequence_id, d.module_id, d.generation_id)
+        for d in decision_records if d.allowed
     }
     denied_keys = {
-        (d.sequence_id, d.module_id) for d in decision_records if not d.allowed
+        (d.sequence_id, d.module_id, d.generation_id)
+        for d in decision_records if not d.allowed
     }
 
     for audit in audit_records:
-        key = (audit.sequence_id, audit.module_id)
+        key = (audit.sequence_id, audit.module_id, audit.generation_id)
         if key in denied_keys and key not in allowed_keys:
             failures.append(
                 f"Decision ancestry: audit record (sequence_id={audit.sequence_id}, "
-                f"module_id={audit.module_id!r}) has a matching DECISION record but "
-                f"it was DENIED -- an audit record should never exist for a denied decision."
+                f"module_id={audit.module_id!r}, generation_id={audit.generation_id.hex()}) "
+                f"has a matching DECISION record but it was DENIED -- an audit record "
+                f"should never exist for a denied decision."
             )
         elif key not in allowed_keys:
-            failures.append(
-                f"Decision ancestry: audit record (sequence_id={audit.sequence_id}, "
-                f"module_id={audit.module_id!r}) has no corresponding allowed "
-                f"DecisionRecord in the decision log at all."
+            same_seq_and_module_different_generation = any(
+                d.sequence_id == audit.sequence_id
+                and d.module_id == audit.module_id
+                and d.generation_id != audit.generation_id
+                for d in decision_records
             )
+            if same_seq_and_module_different_generation:
+                failures.append(
+                    f"Decision ancestry: audit record (sequence_id={audit.sequence_id}, "
+                    f"module_id={audit.module_id!r}, generation_id={audit.generation_id.hex()}) "
+                    f"has a DecisionRecord at the same (sequence_id, module_id) but a "
+                    f"DIFFERENT generation_id -- these are not the same execution attempt "
+                    f"and were never meant to be joined. Generation mismatch, not a missing "
+                    f"decision."
+                )
+            else:
+                failures.append(
+                    f"Decision ancestry: audit record (sequence_id={audit.sequence_id}, "
+                    f"module_id={audit.module_id!r}) has no corresponding allowed "
+                    f"DecisionRecord in the decision log at all."
+                )
     return failures
 
 
