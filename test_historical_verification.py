@@ -1,0 +1,229 @@
+"""
+Historical Verification - Tests
+(test_historical_verification.py)
+
+Two categories: the four real outcomes for both record types (via
+verify_decision_record_line / verify_execution_audit_record_line), and
+the structural-guard tests proving HistoricalVerificationResult itself
+refuses to be constructed with a recognition/verification combination
+that would violate the "recognition is not verification" contract --
+these are the tests that actually matter here, since they prove the
+guard is enforced by the type itself, not merely followed by the two
+verify_* functions that happen to use it correctly today.
+"""
+
+import pytest
+
+from historical_verification import (
+    VerificationOutcome,
+    HistoricalVerificationResult,
+    verify_decision_record_line,
+    verify_execution_audit_record_line,
+)
+
+
+# ---------------------------------------------------------------------
+# DecisionRecord -- four outcomes
+# ---------------------------------------------------------------------
+
+def test_current_schema_decision_record_passes():
+    payload = {
+        "sequence_id": 1,
+        "module_id": "phoenix_a_core_v1",
+        "allowed": True,
+        "decision_hash": "aa" * 32,
+        "generation_id": "bb" * 16,
+    }
+    result = verify_decision_record_line(payload)
+
+    assert result.outcome == VerificationOutcome.PASS
+    assert result.schema_family is None
+    assert result.record_type == "DecisionRecord"
+
+
+def test_current_schema_decision_record_with_malformed_hash_fails():
+    """
+    All five current-schema keys present, but decision_hash is not a
+    valid 32-byte hex string -- DecisionRecordValidationError, caught
+    and surfaced as FAIL, not silently ignored.
+    """
+    payload = {
+        "sequence_id": 1,
+        "module_id": "phoenix_a_core_v1",
+        "allowed": True,
+        "decision_hash": "deadbeef",  # 4 bytes, not 32
+        "generation_id": "bb" * 16,
+    }
+    result = verify_decision_record_line(payload)
+
+    assert result.outcome == VerificationOutcome.FAIL
+    assert result.schema_family is None
+    assert "reconstruction/verification failed" in result.detail
+
+
+def test_pre_generation_id_decision_record_is_unsupported_not_pass_or_fail():
+    payload = {
+        "sequence_id": 1,
+        "module_id": "phoenix_a_core_v1",
+        "allowed": True,
+        "decision_hash": "aa" * 32,
+    }
+    result = verify_decision_record_line(payload)
+
+    assert result.outcome == VerificationOutcome.UNSUPPORTED_HISTORICAL_FORMAT
+    assert result.schema_family is not None
+    assert "pre-generation_id" in result.schema_family
+    # The actual point of this whole module:
+    assert result.outcome != VerificationOutcome.PASS
+    assert result.outcome != VerificationOutcome.FAIL
+
+
+def test_corrupt_decision_record_is_corrupt():
+    payload = {"garbage": "not a real payload"}
+    result = verify_decision_record_line(payload)
+
+    assert result.outcome == VerificationOutcome.CORRUPT
+    assert result.schema_family is None
+
+
+# ---------------------------------------------------------------------
+# ExecutionAuditRecord -- four outcomes
+# ---------------------------------------------------------------------
+
+def test_current_schema_execution_audit_record_passes():
+    payload = {
+        "sequence_id": 1,
+        "input_hash": "aa" * 32,
+        "prior_state_hash": "bb" * 32,
+        "output_hash": "cc" * 32,
+        "module_id": "phoenix_a_core_v1",
+        "success": True,
+        "frame_timestamp_ns": 1000,
+        "error_message": None,
+        "generation_id": "dd" * 16,
+    }
+    result = verify_execution_audit_record_line(payload)
+
+    assert result.outcome == VerificationOutcome.PASS
+    assert result.schema_family is None
+
+
+def test_current_schema_execution_audit_record_with_consistency_violation_fails():
+    """
+    success=True with a non-None error_message violates
+    ExecutionAuditRecord's own consistency rule -- caught, surfaced as
+    FAIL.
+    """
+    payload = {
+        "sequence_id": 1,
+        "input_hash": "aa" * 32,
+        "prior_state_hash": "bb" * 32,
+        "output_hash": "cc" * 32,
+        "module_id": "phoenix_a_core_v1",
+        "success": True,
+        "frame_timestamp_ns": 1000,
+        "error_message": "should not be here",
+        "generation_id": "dd" * 16,
+    }
+    result = verify_execution_audit_record_line(payload)
+
+    assert result.outcome == VerificationOutcome.FAIL
+
+
+def test_pre_generation_id_execution_audit_record_is_unsupported():
+    payload = {
+        "sequence_id": 1,
+        "input_hash": "aa" * 32,
+        "prior_state_hash": "bb" * 32,
+        "output_hash": "cc" * 32,
+        "module_id": "phoenix_a_core_v1",
+        "success": True,
+        "frame_timestamp_ns": 1000,
+        "error_message": None,
+    }
+    result = verify_execution_audit_record_line(payload)
+
+    assert result.outcome == VerificationOutcome.UNSUPPORTED_HISTORICAL_FORMAT
+    assert result.schema_family is not None
+    assert result.outcome not in (VerificationOutcome.PASS, VerificationOutcome.FAIL)
+
+
+def test_corrupt_execution_audit_record_is_corrupt():
+    payload = {"sequence_id": 1}
+    result = verify_execution_audit_record_line(payload)
+
+    assert result.outcome == VerificationOutcome.CORRUPT
+    assert result.schema_family is None
+
+
+# ---------------------------------------------------------------------
+# Structural guards -- the actual proof the contract is enforced, not
+# just followed by the two functions above
+# ---------------------------------------------------------------------
+
+def test_guard_rejects_historical_family_with_pass_outcome():
+    """
+    The exact misuse the whole contract exists to prevent: a
+    HistoricalVerificationResult claiming a recognized historical
+    schema was VERIFIED. Must raise, unconditionally, regardless of
+    which function (or future function) tries to construct it.
+    """
+    with pytest.raises(ValueError, match="recognition is not verification"):
+        HistoricalVerificationResult(
+            record_type="DecisionRecord",
+            schema_family="DecisionRecord (pre-generation_id, RECORD_HASH_FORMAT_VERSION=1)",
+            outcome=VerificationOutcome.PASS,
+            detail="should never be constructible",
+        )
+
+
+def test_guard_rejects_historical_family_with_fail_outcome():
+    with pytest.raises(ValueError, match="recognition is not verification"):
+        HistoricalVerificationResult(
+            record_type="DecisionRecord",
+            schema_family="DecisionRecord (pre-generation_id, RECORD_HASH_FORMAT_VERSION=1)",
+            outcome=VerificationOutcome.FAIL,
+            detail="should never be constructible",
+        )
+
+
+def test_guard_rejects_unsupported_historical_format_without_schema_family():
+    with pytest.raises(ValueError, match="requires schema_family"):
+        HistoricalVerificationResult(
+            record_type="DecisionRecord",
+            schema_family=None,
+            outcome=VerificationOutcome.UNSUPPORTED_HISTORICAL_FORMAT,
+            detail="incoherent -- no named schema",
+        )
+
+
+def test_guard_rejects_corrupt_with_a_schema_family_set():
+    with pytest.raises(ValueError, match="CORRUPT means no schema was recognized"):
+        HistoricalVerificationResult(
+            record_type="DecisionRecord",
+            schema_family="some schema",
+            outcome=VerificationOutcome.CORRUPT,
+            detail="incoherent -- CORRUPT should never name a schema",
+        )
+
+
+def test_guard_permits_pass_with_no_schema_family():
+    """Sanity: the guard doesn't over-reject legitimate combinations."""
+    result = HistoricalVerificationResult(
+        record_type="DecisionRecord",
+        schema_family=None,
+        outcome=VerificationOutcome.PASS,
+        detail="fine",
+    )
+    assert result.outcome == VerificationOutcome.PASS
+
+
+def test_guard_permits_unsupported_historical_format_with_schema_family():
+    """Sanity: the one combination that SHOULD succeed does."""
+    result = HistoricalVerificationResult(
+        record_type="DecisionRecord",
+        schema_family="some recognized schema",
+        outcome=VerificationOutcome.UNSUPPORTED_HISTORICAL_FORMAT,
+        detail="fine",
+    )
+    assert result.outcome == VerificationOutcome.UNSUPPORTED_HISTORICAL_FORMAT
