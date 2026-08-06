@@ -1,6 +1,6 @@
 # COLD_BOOT_RECONSTRUCTION_CONTRACT.md
 
-**Status:** Draft specification, v1.1. Precedes and constrains
+**Status:** Draft specification, v1.2. Precedes and constrains
 `test_cold_boot_reconstruction.py` — no reconstruction code should be
 written against a claim not listed here as SHALL, and any test
 asserting a SHALL NOT claim is itself a contract violation.
@@ -90,14 +90,27 @@ smuggled into a SHALL clause.
      each record type's persistence test file.
 
    - **Not available under the current persistence schema** for
-     `KernelStateEnvelope.state_hash`. Unlike the three record types
-     above, `KernelStateEnvelope` has no `__post_init__` and derives
-     no hash of its own — `state_hash` is computed externally, inside
-     `KernelStateMachine.get_envelope()`, from that machine's PRIVATE
-     mutable state (`last_processed_seq`, `total_frames_processed`,
-     `current_state`, `fault_reason`). None of these four scalar
-     inputs are persisted anywhere in the current schema — not in
-     `ExecutionAuditRecord`, not in any log. Only the OUTPUT
+     `KernelStateEnvelope.state_hash`.
+
+     **Status correction:** this is NOT blocked by derivation-algorithm
+     availability — the derivation exists, fully known, in
+     `KernelStateMachine.get_envelope()`. It is blocked because that
+     derivation depends on TRANSIENT RUNTIME STATE
+     (`last_processed_seq`, `total_frames_processed`, `current_state`,
+     `fault_reason`) that the current schema never persists. Closure
+     requires either (A) replay-based reconstruction through the
+     canonical state machine, or (B) persistence of the derivation
+     inputs. **Path (A) was selected** — see "Canonical Replay
+     Verification" below — specifically because it preserves schema
+     stability: no existing record type gains new fields, no existing
+     test's field-signature assertions break.
+
+     Unlike the three record types above, `KernelStateEnvelope` has no
+     `__post_init__` and derives no hash of its own — `state_hash` is
+     computed externally, inside `KernelStateMachine.get_envelope()`,
+     from that machine's PRIVATE mutable state. None of these four
+     scalar inputs are persisted anywhere in the current schema — not
+     in `ExecutionAuditRecord`, not in any log. Only the OUTPUT
      (`prior_state_hash`, an opaque 32 bytes) is ever stored; the
      inputs needed to recompute it are not.
 
@@ -115,22 +128,27 @@ smuggled into a SHALL clause.
          forbids, and would need a deliberate, explicitly documented
          exception to that constraint, not a quiet exception.
 
-     (b) **Sequential replay**: construct a real `KernelStateMachine`,
-         replay every transition from genesis through the persisted
-         history in order, and compare its `get_envelope().state_hash`
-         at each step against the corresponding `prior_state_hash`
-         already on disk. This uses the actual class (satisfying
-         SHALL 5's spirit more faithfully than (a)), but is materially
-         larger in scope than "expose an algorithm," and introduces a
-         real, mutable, stateful runtime object into what has so far
-         been a passive-record-only verifier — a change to the
-         verifier's isolation posture that should be considered
-         deliberately, not incidentally.
+     (b) **Sequential replay** (SELECTED — see "Canonical Replay
+         Verification" section below): construct a real
+         `KernelStateMachine`, replay every transition from genesis
+         through the persisted history in order, and compare its
+         `get_envelope().state_hash` at each step against the
+         corresponding `prior_state_hash` already on disk. This uses
+         the actual class (satisfying SHALL 5's spirit more faithfully
+         than (a)), but introduces a real, mutable, stateful runtime
+         object into what has so far been a passive-record-only
+         verifier — a change to the verifier's isolation posture
+         handled as a deliberate, documented, separate extension
+         rather than folded silently into SHALL 5.
 
-     Until one of these paths is chosen and built, `state_hash`
-     consistency remains unverified by any reconstruction code, and
-     this is not merely a matter of "incorporating a derivation" —
-     it is a genuine schema gap.
+     Partial closure status: Path (b) is now implemented
+     (`kernel_state_replay.py`) and proven for the single-engine,
+     no-administrative-reset case (`test_kernel_state_replay.py`,
+     6/6). It remains unavailable for histories spanning an
+     administrative reset (Gap 1b) and for multi-engine interleaved
+     logs (no session identifier exists in the schema to detect that
+     case) — see "Canonical Replay Verification" below for the
+     documented scope limits.
 
 ---
 
@@ -177,6 +195,66 @@ smuggled into a SHALL clause.
    records observed in testing came only from incidental frame-content
    differences (`input_hash` / `output_hash`), never from any chaining
    property of the hash itself.
+
+---
+
+## Canonical Replay Verification (extension — opt-in, different isolation posture)
+
+This section governs `kernel_state_replay.py` and anything built on
+its `KernelStateVerifier` interface. It is explicitly SEPARATE from
+the passive verification SHALL/SHALL NOT items above — those govern
+`cold_boot_reconstruction.py` and `causal_history_verifier.py`, which
+remain strictly passive (no live runtime objects), unchanged by this
+section.
+
+**Why this is a separate section, not an amendment to SHALL 5 above:**
+closing the state_hash gap via replay requires constructing a real,
+mutable `KernelStateMachine` — a genuine departure from the
+evidence-driven, passive-record-only posture the rest of this contract
+holds to. That departure is deliberate and bounded, not incidental,
+and callers must opt into it explicitly (see
+`reconstruct_cold_boot_with_replay()` vs. `reconstruct_cold_boot()`,
+the latter unchanged by this extension).
+
+**A canonical replay verifier SHALL:**
+- Construct the state machine only via the actual, unmodified
+  `KernelStateMachine` class from `execution_kernel_state.py` — never
+  a separate reimplementation of its transition or hashing logic.
+  Evidence: `kernel_state_replay.py` imports and instantiates
+  `KernelStateMachine` directly; no hashing logic is reimplemented.
+- Replay transitions in the exact sequence the original engine would
+  have performed them, inferred only from fields already present on
+  `ExecutionAuditRecord` (`sequence_id`, `success`, `error_message`).
+- Refuse to continue replay past an unresolved fault (see Gap 1b) —
+  report affected records as explicitly unverified via
+  `unverified_after_fault_count`, never guess whether a reset occurred.
+  Evidence: `test_kernel_state_replay.py::test_records_appended_after_a_fault_are_marked_unverified_not_guessed`.
+- Expose its capability behind the `KernelStateVerifier` interface, so
+  a future Path (A) implementation (should a schema change ever
+  persist the raw derivation inputs) could be substituted without
+  callers changing. Evidence: `SequentialReplayKernelVerifier`
+  implements `KernelStateVerifier`; `reconstruct_cold_boot_with_replay()`
+  accepts any implementation via its `kernel_verifier` parameter.
+
+**A canonical replay verifier SHALL NOT:**
+- Claim validity across multiple interleaved engine/module runs in one
+  log. No session identifier exists anywhere in the current schema to
+  detect this case — `kernel_state_replay.py`'s own docstring names
+  this as scope limitation 1, not a silently assumed non-issue.
+- Claim to verify whether the FIRST record in a given history was
+  itself preceded by an undetected reset (scope limitation 2) —
+  genesis is always assumed, never proven, per the same
+  information-theoretic argument behind Gap 1b.
+- Be silently merged into `reconstruct_cold_boot()`'s default
+  behavior. Combining passive and replay verification is available
+  only via the explicitly separate `reconstruct_cold_boot_with_replay()`
+  entry point in `cold_boot_replay_extension.py` —
+  `cold_boot_reconstruction.py` itself is not modified by this
+  extension.
+
+**Status:** Path (b) implemented and proven for the single-engine,
+no-reset case. Gap 1b remains open and continues to bound this
+extension's claims exactly as it bounds the passive verifier's.
 
 ---
 
@@ -242,3 +320,15 @@ behind every reset-related SHALL NOT clause above.
   (persisting new fields with an explicit reimplementation exception,
   or sequential replay through a real state machine instance) and why
   neither is a simple extension of the existing SHALL 5 pattern.
+
+- **v1.2** (2026-08-04): corrected Gap 1's framing again — from
+  "algorithm unavailable" (imprecise) to "algorithm known, its inputs
+  are transient runtime state never persisted" (precise). Selected and
+  implemented Path (b), sequential replay, specifically because it
+  preserves schema stability over Path (a)'s field additions. Added
+  the "Canonical Replay Verification" section formalizing
+  `kernel_state_replay.py`'s `KernelStateVerifier` interface as a
+  documented, bounded, opt-in exception to this contract's
+  passive-only posture — proven for the single-engine, no-reset case;
+  Gap 1b continues to bound its claims across resets exactly as it
+  bounds the passive verifier.
