@@ -1,6 +1,26 @@
 """
 Deterministic Execution Engine & State Evolution Operator - Sentinel Framework
 
+v2.8 (PolicyDecisionRecord emission): process_frame() now constructs a
+PolicyDecisionRecord alongside DecisionRecord, at the same call site,
+from the SAME ExecutionPolicyDecision object -- not a second
+authorize() call, not a reconstruction from fields. This is the engine
+acting as compositor: it is the first point where frame.seq_id,
+prior_envelope.generation_id, and the authorizer's decision all coexist
+in scope at once, so it is the only place that can correctly bind all
+three without any of the three modules involved (authorizer, kernel
+state, policy decision persistence) needing to know about the others.
+See policy_decision_record_contract.py's own docstring for why this
+wrapper is constructed here and not inside ExecutionPolicyDecision or
+ExecutionAuthorizer.
+
+Like DecisionRecord, PolicyDecisionRecord is appended for BOTH allowed
+and denied outcomes, at the same point DecisionRecord is appended --
+before the AuthorizationDeniedError raise on denial. A denied attempt
+is still a real policy decision worth its own provenance record, even
+though (like DecisionRecord) it will have no corresponding
+ExecutionAuditRecord, since dispatch never happens on denial.
+
 v2.7 (with_generation): added DeterministicExecutionEngine.with_generation(),
 a test/verification-only alternate constructor that seeds the engine's
 underlying KernelStateMachine via KernelStateMachine.from_history() with
@@ -38,6 +58,11 @@ execution_policy_state.py, or execution_authorizer.py beyond duck-typed
 calls to authorizer.authorize()/record_execution(). decision_record_contract
 IS imported here, since DecisionRecord is engine-owned history, not policy
 internals — it's the same category as ExecutionAuditRecord already is.
+policy_decision_record_contract IS ALSO imported here as of v2.8, for the
+same reason: PolicyDecisionRecord is engine-owned composition history,
+not policy internals -- it embeds an ExecutionPolicyDecision but is
+itself constructed and owned by the engine, exactly like DecisionRecord
+references decision_hash without owning the authorizer's reasoning.
 """
 
 from typing import Any, List, Optional, Tuple
@@ -53,6 +78,7 @@ from execution_kernel_contract import CoreExecutionFrame
 from execution_module_contract import ExecutionModule, ExecutionResult
 from execution_audit_contract import ExecutionAuditRecord
 from decision_record_contract import DecisionRecord
+from policy_decision_record_contract import PolicyDecisionRecord
 
 
 class ExecutionEngineError(Exception):
@@ -68,8 +94,9 @@ class StateIntegrityError(ExecutionEngineError):
 class AuthorizationDeniedError(ExecutionEngineError):
     """
     Raised when an injected authorizer denies execution for a frame.
-    A DecisionRecord is appended to decision_log BEFORE this is raised —
-    denial is a recorded event, not just an exception.
+    A DecisionRecord (and, as of v2.8, a PolicyDecisionRecord) is
+    appended to their respective logs BEFORE this is raised — denial is
+    a recorded event, not just an exception.
     """
 
     def __init__(self, decision: Any) -> None:
@@ -92,6 +119,7 @@ class DeterministicExecutionEngine:
         self._authorizer = authorizer
         self._audit_log: List[ExecutionAuditRecord] = []
         self._decision_log: List[DecisionRecord] = []
+        self._policy_decision_log: List[PolicyDecisionRecord] = []
 
     @classmethod
     def with_generation(
@@ -138,6 +166,7 @@ class DeterministicExecutionEngine:
         instance._authorizer = authorizer
         instance._audit_log = []
         instance._decision_log = []
+        instance._policy_decision_log = []
         return instance
 
     @property
@@ -165,6 +194,22 @@ class DeterministicExecutionEngine:
         a denied attempt appears here with no corresponding audit_log entry.
         """
         return tuple(self._decision_log)
+
+    @property
+    def policy_decision_log(self) -> Tuple[PolicyDecisionRecord, ...]:
+        """
+        Engine-owned policy decision provenance history, as of v2.8.
+        Contains exactly one PolicyDecisionRecord per execution attempt
+        that reached the authorization boundary with an authorizer
+        attached -- same invariant as decision_log, same population
+        points, same call site. Each entry's policy_decision is the
+        exact ExecutionPolicyDecision object DecisionRecord.decision_hash
+        for the same sequence_id references -- see
+        policy_record.policy_decision.decision_hash ==
+        decision_record.decision_hash for the bridge this exists to
+        prove.
+        """
+        return tuple(self._policy_decision_log)
 
     def initialize(self) -> KernelStateEnvelope:
         self._state_machine.transition_to(KernelState.INITIALIZING)
@@ -196,15 +241,25 @@ class DeterministicExecutionEngine:
 
         prior_envelope = self._state_machine.get_envelope()
 
-        # 2. Authorization gate + DecisionRecord emission (v2.5).
-        # Recorded for BOTH allowed and denied outcomes, before any kernel
-        # state mutation — matching v2.4's "denial leaves kernel state
-        # untouched" behavior. The record itself is not kernel state; it's
-        # decision history, appended regardless of the outcome.
+        # 2. Authorization gate + DecisionRecord/PolicyDecisionRecord
+        # emission (v2.5, extended v2.8). Recorded for BOTH allowed and
+        # denied outcomes, before any kernel state mutation — matching
+        # v2.4's "denial leaves kernel state untouched" behavior. Neither
+        # record is kernel state; both are decision history, appended
+        # regardless of the outcome.
         #
         # generation_id (v2.6): sourced from prior_envelope, the SAME
         # envelope this frame's audit record (if any) will also draw
         # generation_id from — both describe the same kernel snapshot.
+        #
+        # PolicyDecisionRecord (v2.8): constructed from the SAME
+        # `decision` object DecisionRecord.decision_hash below
+        # references — not a second authorize() call, not a
+        # reconstruction. This is the one and only place in the codebase
+        # where frame.seq_id, prior_envelope.generation_id, and the
+        # authorizer's ExecutionPolicyDecision all coexist in scope at
+        # once, which is exactly why this record is composed here and
+        # not inside the authorizer or the policy decision itself.
         decision = None
         if self._authorizer is not None and self._module is not None:
             decision = self._authorizer.authorize(self._module.module_id)
@@ -217,6 +272,13 @@ class DeterministicExecutionEngine:
                 generation_id=prior_envelope.generation_id,
             )
             self._decision_log.append(record)
+
+            policy_record = PolicyDecisionRecord(
+                sequence_id=frame.seq_id,
+                generation_id=prior_envelope.generation_id,
+                policy_decision=decision,
+            )
+            self._policy_decision_log.append(policy_record)
 
             if not decision.allowed:
                 raise AuthorizationDeniedError(decision)
