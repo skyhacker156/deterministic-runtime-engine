@@ -2,7 +2,7 @@
 
 **Purpose:** a single reference for "what has actually been proven, and by what evidence" — so six months from now the answer to "did we actually prove this?" is in one place, not scattered across chat history.
 
-**Scope note on language:** nothing below is marked "VERIFIED" as a standalone claim. Every line is phrased as *covered by a specific, named, passing test suite as of the most recent full run*, currently 352/352, all green, zero regressions. That is a narrower and more honest claim than "verified" — it means these properties hold for the test suite's inputs and this codebase's current state, not that the system has been adversarially tested, audited by a third party, or run under production load.
+**Scope note on language:** nothing below is marked "VERIFIED" as a standalone claim. Every line is phrased as *covered by a specific, named, passing test suite as of the most recent full run*, currently 399/399, all green, zero regressions. That is a narrower and more honest claim than "verified" — it means these properties hold for the test suite's inputs and this codebase's current state, not that the system has been adversarially tested, audited by a third party, or run under production load.
 
 ---
 
@@ -20,6 +20,7 @@
 | Replay determinism, in-memory (same engine, same inputs, same output hashes) | `test_deterministic_execution_engine.py::test_replay_equivalence_determinism`, `test_pipeline_integration.py::test_deterministic_replay_across_runs`, `test_replay_engine_audit_chain.py` |
 | Module lifecycle state machine (legal/illegal transitions, terminal states) | `test_module_lifecycle.py`, 22/22 |
 | Compliance check suite (determinism, no context mutation, graceful rejection of pathological input, hashable output, auditable failure) | `test_module_contract_compliance.py`, both `PhoenixAExecutionModule` and `ExampleExecutionModule` |
+| Policy decision provenance, in-memory (`PolicyDecisionRecord` is constructed from the SAME `ExecutionPolicyDecision` object that produces the corresponding `DecisionRecord`, at the same call site in `process_frame()` — not a second `authorize()` call, not a reconstruction) | `test_engine_policy_decision_emission.py`, 4/4 |
 
 ## Execution Generation Identity
 
@@ -45,8 +46,9 @@
 | `ModuleRegistrationAttemptRecord` survives JSON disk round-trip, hash intact | `test_registration_audit_persistence.py`, 9/9 |
 | `DecisionRecord` survives JSON disk round-trip — both the opaque `decision_hash` and the derived `record_hash` independently checked | `test_decision_record_persistence.py`, 11/11 |
 | `ExecutionAuditRecord` survives JSON disk round-trip — all three opaque hashes plus derived `audit_hash` independently checked | `test_execution_audit_persistence.py`, 15/15 |
-| Reconstructed hashes are genuinely recomputed, not trusted from storage (tampering tests) | Tampering test cases in all three persistence test files above |
-| Malformed or incomplete persisted data fails loudly, not silently | Corruption-rejection tests in all three persistence test files |
+| `PolicyDecisionRecord` survives JSON disk round-trip — TWO independent hash layers checked separately: the embedded `ExecutionPolicyDecision.decision_hash` (nested, itself re-derived from real fields on reconstruction, never trusted from storage) and the derived `entry_hash` one layer up (from `sequence_id`, `generation_id`, and `decision_hash` as an opaque reference) | `test_policy_decision_record_persistence.py`, 13/13 |
+| Reconstructed hashes are genuinely recomputed, not trusted from storage (tampering tests) | Tampering test cases in all four persistence test files above |
+| Malformed or incomplete persisted data fails loudly, not silently | Corruption-rejection tests in all four persistence test files |
 
 ## Disk Persistence (multi-record, append-only)
 
@@ -55,8 +57,9 @@
 | Registration attempt log preserves append order and hash integrity across many records | `test_registration_audit_log_append.py`, 11/11 |
 | Decision record log preserves append order and both hashes across many records | `test_decision_record_log_append.py`, 11/11 |
 | Execution audit log preserves append order and all four hashes across many records | `test_execution_audit_log_append.py`, 11/11 |
-| Corrupt lines are rejected with a locatable line number, not silently skipped | Corruption tests in all three append-log test files |
-| Reopen-and-append across separate calls does not clobber prior content | `test_appending_across_separate_calls_preserves_prior_records` in all three append-log test files |
+| Policy decision record log preserves append order and both hash layers across many records | `test_policy_decision_record_log.py`, 11/11 |
+| Corrupt lines are rejected with a locatable line number, not silently skipped | Corruption tests in all four append-log test files |
+| Reopen-and-append across separate calls does not clobber prior content | `test_appending_across_separate_calls_preserves_prior_records` in all four append-log test files |
 
 ## Cross-Log Verification (disk-only, no live runtime objects — the external verifier boundary)
 
@@ -65,7 +68,8 @@
 | Decision ancestry, re-derived purely from disk (every audit record on disk has a matching allowed decision record on disk) | `causal_history_verifier.py` Check 1, `test_causal_history_verifier.py` |
 | Per-module sequence ordering holds within the persisted decision and audit logs | `causal_history_verifier.py` Check 2 |
 | Every module_id in the decision/audit logs has a corresponding successful registration attempt on disk | `causal_history_verifier.py` Check 3 |
-| Verifier has zero import dependency on the live engine, registry, lifecycle manager, or authorizer — proven by subprocess, not just import inspection | `test_verifier_runtime_isolation.py` |
+| Policy decision provenance, re-derived purely from disk: every `DecisionRecord.decision_hash` traces to a real, correctly-correlated `PolicyDecisionRecord` — joined on `(sequence_id, generation_id)`, deliberately never on `decision_hash` alone, since `ExecutionPolicyDecision._compute_decision_hash()` excludes `observed_invocation_count` and two decisions at different points in history can share a hash. OPTIONAL: `verify_causal_history()` only runs this check when a caller supplies the fourth log path; every pre-existing caller is unaffected and unchanged | `causal_history_verifier.py` Check 4, `test_causal_history_verifier.py` (6 Check-4-specific tests, including the "two individually-valid records with swapped content" case that only a real cross-log join catches) |
+| Verifier has zero import dependency on the live engine, registry, lifecycle manager, or authorizer — proven by subprocess, not just import inspection. Closing Gap 2 (below) via Check 4 required extracting `ExecutionPolicyDecision` and `ModuleState` into new, dependency-free contract modules (`execution_policy_decision_contract.py`, `module_state.py`), separate from the live orchestration classes (`ExecutionAuthorizer`, `ModuleLifecycleManager`) they used to be defined alongside — this test caught the original versions transitively importing five forbidden modules merely by needing `ExecutionPolicyDecision`'s type, before the extraction | `test_verifier_runtime_isolation.py` |
 
 ## Cold Boot Reconstruction
 
@@ -134,7 +138,9 @@ See `COLD_BOOT_RECONSTRUCTION_CONTRACT.md` SHALL 5 for the full corrected analys
 
 ### Gap 2 — Policy decision hash provenance
 
-**Status:** Not independently verifiable.
+**Status:** CLOSED 2026-08-06, at the `causal_history_verifier.py` layer specifically. See UPDATE below for the precise scope — this does NOT mean `cold_boot_reconstruction.py` also reconstructs a fourth history; that remains separate, not-yet-built work.
+
+**Original entry (2026-08-05, historical), preserved:**
 
 **What IS proven:** every persisted `DecisionRecord.decision_hash` is present and well-formed (32 bytes) — but this is true by construction (`DecisionRecord.__post_init__` enforces it), so confirming it again in the verifier would not be a meaningful check.
 
@@ -142,7 +148,17 @@ See `COLD_BOOT_RECONSTRUCTION_CONTRACT.md` SHALL 5 for the full corrected analys
 
 **Reason:** `DecisionRecord.decision_hash` is documented as a reference to `ExecutionPolicyDecision.decision_hash` — but the referenced object itself has no independent record on disk to check against.
 
-**Required to close:** persist `ExecutionPolicyDecision` itself (a fourth log, not yet built), so `decision_hash` can be checked against an independent source rather than only against its own downstream reference.
+**Required to close (original, now superseded):** persist `ExecutionPolicyDecision` itself (a fourth log, not yet built), so `decision_hash` can be checked against an independent source rather than only against its own downstream reference.
+
+**UPDATE 2026-08-06 — PolicyDecisionRecord and Check 4:**
+
+- `ExecutionPolicyDecision` is now persisted, wrapped in a new `PolicyDecisionRecord` (`policy_decision_record_contract.py`). The wrapper adds `sequence_id`/`generation_id` as an explicit positional join key — `ExecutionPolicyDecision` itself deliberately does not carry one, the same way it deliberately has no `generation_id` (see decision_record_contract.py's docstring for the identical reasoning: keeping the authorizer decoupled from kernel state). A hash-only join was considered and rejected as unsound: `decision_hash`'s own computation excludes `observed_invocation_count`, so two decisions made at genuinely different points in an execution history, differing only in invocation count, produce identical `decision_hash` — joining on the hash alone could silently match the wrong historical decision and still report success.
+- `causal_history_verifier.py` gained Check 4 (policy decision provenance): every `DecisionRecord.decision_hash` is checked against a real, correctly-correlated `PolicyDecisionRecord` on disk. Three distinct, separately-tested failure modes: no matching record at all, a record at the same `sequence_id` but a *different* `generation_id` (proving the join doesn't accidentally cross a reset boundary), and a record at the correct join key whose embedded `decision_hash` doesn't match (the case that catches two individually well-formed records whose content was swapped between two different attempts — neither record is malformed on its own; only the cross-log join catches it).
+- Check 4 is optional and fully backward-compatible: `verify_causal_history()` only runs it when a caller supplies `policy_decision_log_path`. Every pre-existing caller (`test_causal_history_verifier.py`'s original tests, `cold_boot_reconstruction.py`, the embedded subprocess script in `test_verifier_runtime_isolation.py`) continues to work completely unchanged, with `CausalHistoryReport.policy_decision_record_count` staying `None` — distinguished from `0` — when the check didn't run.
+- The engine (`deterministic_execution_engine.py` v2.8) now constructs `PolicyDecisionRecord` from the exact same `ExecutionPolicyDecision` object that produces `DecisionRecord`, at the same call site in `process_frame()`, for both allowed and denied outcomes — not a second `authorize()` call, not a reconstruction from fields. Proven in-memory by `test_engine_policy_decision_emission.py` before the disk-only verifier check was built on top of it.
+- Closing this required a real architecture fix, not just new files. The original `ExecutionPolicyDecision` lived inside `execution_authorizer.py` alongside `ExecutionAuthorizer`, and `observed_lifecycle_state`'s type, `ModuleState`, lived inside `module_lifecycle.py` alongside `ModuleLifecycleManager` — both live, mutable orchestration classes. `test_verifier_runtime_isolation.py` caught the first version of this work transitively importing five forbidden runtime modules (`execution_authorizer`, `execution_module_registry`, `execution_policy`, `execution_policy_state`, `module_lifecycle`) merely by needing `ExecutionPolicyDecision`'s type — none of which the dataclass itself actually depends on. Both `ExecutionPolicyDecision` and `ModuleState` were extracted into new, dependency-free contract modules (`execution_policy_decision_contract.py`, `module_state.py`); `execution_authorizer.py` and `module_lifecycle.py` now import them rather than defining them, and both extractions are confirmed behavior-preserving — `test_execution_authorizer.py` and `test_module_lifecycle.py` stayed green throughout, unmodified.
+
+**Scope of closure, stated precisely:** this closes Gap 2 at the `causal_history_verifier.py` layer only. `cold_boot_reconstruction.py` still reconstructs only the original three histories (registration, authorization, execution) from disk — it does NOT yet reconstruct a fourth policy-decision history alongside them, and its own `ColdBootReconstructionResult` has no `PolicyDecisionRecord`-related field. Extending cold-boot reconstruction to include `PolicyDecisionRecord` is separate, not-yet-built work, tracked here rather than silently assumed to have happened as a side effect of Check 4.
 
 ---
 
@@ -155,6 +171,6 @@ See `COLD_BOOT_RECONSTRUCTION_CONTRACT.md` SHALL 5 for the full corrected analys
 
 ---
 
-**Last updated against:** full suite run at 352/352 passing, zero regressions. `generation_id` execution-generation-identity migration completed 2026-08-05 (see Execution Generation Identity section above); Gap 1b partially closed the same day — see that entry for the corrected, narrower current scope, and for the schema-complete / single-generation-replay-complete / multi-generation-replay-deferred status split. `REPLAY_GENERATION_MODEL.md`, added 2026-08-05, is the authoritative frozen design for future multi-generation replay work (Phases 1–3) — not yet implemented, referenced from Gap 1b above. Confirmed reproducible from a fresh clone with one documented manual build step (see `BUILD.md`). Python dependency versions pinned via `requirements.txt` (Gap 3, closed). Gap 1 corrected 2026-08-04: prior framing understated the gap — see Gap 1 entry above and `COLD_BOOT_RECONSTRUCTION_CONTRACT.md` v1.1. Gap 1's citation of `kernel_state_replay.py` flagged as missing/unresolved 2026-08-05 — see editorial flag in that entry.
+**Last updated against:** full suite run at 399/399 passing, zero regressions. `generation_id` execution-generation-identity migration completed 2026-08-05 (see Execution Generation Identity section above); Gap 1b partially closed the same day — see that entry for the corrected, narrower current scope, and for the schema-complete / single-generation-replay-complete / multi-generation-replay-deferred status split. `REPLAY_GENERATION_MODEL.md`, added 2026-08-05, is the authoritative frozen design for future multi-generation replay work (Phases 1–3) — not yet implemented, referenced from Gap 1b above. Gap 2 (policy decision hash provenance) CLOSED 2026-08-06 at the `causal_history_verifier.py` layer via the new `PolicyDecisionRecord` fourth record type and Check 4 — see that entry for the precise scope of closure and the `ExecutionPolicyDecision`/`ModuleState` extraction `test_verifier_runtime_isolation.py` required. Confirmed reproducible from a fresh clone with one documented manual build step (see `BUILD.md`). Python dependency versions pinned via `requirements.txt` (Gap 3, closed). Gap 1 corrected 2026-08-04: prior framing understated the gap — see Gap 1 entry above and `COLD_BOOT_RECONSTRUCTION_CONTRACT.md` v1.1. Gap 1's citation of `kernel_state_replay.py` flagged as missing/unresolved 2026-08-05 — see editorial flag in that entry, still unresolved as of this update.
 
 **Maintenance note:** when a new check, record type, or log is added, add its row to the relevant table above with the specific test file/name as evidence — not a bare checkmark. When a gap closes, move its row from "Known Non-Verifiable Areas" into the appropriate verified table, citing the new evidence. When a gap's own description turns out to be wrong (as happened with Gap 1), correct it in place with the old framing left visible, not silently replaced.
