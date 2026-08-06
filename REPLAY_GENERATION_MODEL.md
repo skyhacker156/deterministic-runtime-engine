@@ -1,10 +1,6 @@
 # REPLAY_GENERATION_MODEL.md
 
-**Status: design note, pre-implementation.** Nothing in this document is built. It exists to settle what "replay" actually claims to prove before extending `from_history()` or `kernel_state_replay.py` any further — see `PHOENIX_VERIFICATION_STATE.md`'s Execution Generation Identity section for what is currently proven, and its Gap 1b entry for why this document exists at all.
-
-**Scope note, matching `PHOENIX_VERIFICATION_STATE.md`'s own convention:** this document distinguishes two claims that have so far been talked about as one thing — "replay works." They are not the same claim, they are not proven by the same evidence, and conflating them is exactly the mistake this session already found and fixed once (several tests named `*_replay_determinism` were actually testing something narrower than their names implied, until `with_generation()` made the distinction explicit).
-
-**Revision note (this version):** Mode B, originally described as one undifferentiated capability, is decomposed below into three phases with a hard boundary between them. This is a scope-reduction decision, not just an organizational one — see "Why three phases" below.
+**Status: Phases 1-3 IMPLEMENTED and tested. This document is now the formal specification of what those phases prove, not a pre-implementation design.** `generation_segmentation.py`, `generation_segment_verification.py`, and `candidate_lineage_construction.py` all exist, are tested (`test_generation_segmentation.py` 8/8, `test_generation_segment_verification.py` 5/5, `test_candidate_lineage_construction.py` 7/7), and are confirmed in the full 451/451 suite alongside everything else in this project. What remained genuinely open after implementation was not "what to build next" but "under exactly what conditions can Phoenix claim two records belong to the same execution generation" — precisely, not probabilistically. That question is answered in **"The Formal Question, Answered"** below, and the answer is what makes the rest of this document a specification rather than a changelog.
 
 ---
 
@@ -14,17 +10,15 @@
 
 The claim: given a fixed starting point (a specific generation), replaying or re-executing the same logical input sequence produces identical output hashes.
 
-This claim has two distinct sub-cases, currently conflated in casual conversation but proven by different mechanisms:
+- **A1 — synthetic determinism.** Two independently-constructed engine instances, explicitly seeded with the *same* `generation_id` via `DeterministicExecutionEngine.with_generation()`, given the same synthetic input sequence, produce identical hashes. Proven by `test_deterministic_execution_engine.py::test_replay_equivalence_determinism`, `test_module_contract_compliance.py::test_module_replay_matches`, and the rest of the replay-equivalence cluster.
 
-- **A1 — synthetic determinism.** Two independently-constructed engine instances, explicitly seeded with the *same* `generation_id` via `DeterministicExecutionEngine.with_generation()`, given the same synthetic input sequence, produce identical hashes. This proves the computation itself is deterministic, holding generation identity constant as a controlled variable. Proven by `test_deterministic_execution_engine.py::test_replay_equivalence_determinism`, `test_module_contract_compliance.py::test_module_replay_matches`, and the rest of the replay-equivalence cluster fixed this session.
-
-- **A2 — real-history replay, single generation.** A *real*, already-persisted execution stream — not a freshly synthesized one — is replayed sequentially through a `KernelStateMachine` reconstructed via `KernelStateMachine.from_history()`, and the replayed hash chain is compared against what was actually persisted at the time. This proves replay can faithfully reproduce one real historical generation's causal chain, not just that two synthetic runs agree with each other. Proven by `test_kernel_state_replay.py` (all 6 tests), scoped explicitly to a single generation — see that file's own module docstring.
+- **A2 — real-history replay, single generation.** A *real*, already-persisted execution stream is replayed sequentially through a `KernelStateMachine` reconstructed via `from_history()`, and the replayed hash chain is compared against what was actually persisted. Proven by `test_kernel_state_replay.py`, scoped explicitly to a single generation.
 
 **A1 and A2 are both proven. Neither is Mode B.**
 
 ### Replay Mode B — "Can I reconstruct the exact historical execution lineage?"
 
-The claim: given a real, persisted history that spans **more than one generation** — i.e., contains one or more genuine administrative resets — replay can reconstruct the full lineage: which records belong to which generation, in what order, with each generation-to-generation transition correctly identified and accounted for.
+The claim: given a real, persisted history that spans **more than one generation**, replay can reconstruct the full lineage — which records belong to which generation, in what order, with each transition correctly identified.
 
 ```
 Generation 1
@@ -40,162 +34,125 @@ Generation 2
     frame 4
 ```
 
-The question Mode B answers: **can Phoenix reconstruct that exact graph** — not just verify that generation 1's frames are internally consistent, and separately that generation 2's frames are internally consistent, but that the *transition itself*, its position, and its cause are all correctly recovered from disk alone.
-
-**Current status: NOT proven. Nothing in the codebase attempts this today.**
-
-What exists today that Mode B would build on:
-- `generation_id` is a real, persisted field on `DecisionRecord` and `ExecutionAuditRecord` (round-trips through JSON — `test_decision_record_persistence.py`, `test_execution_audit_persistence.py`).
-- `kernel_state_replay.py` already *detects* a generation change mid-history (`generation_boundary_index` on `KernelReplayReport`) and, on detecting one, **stops and reports** rather than attempting to continue. This is deliberate — see that module's own docstring, limitation 2 — but it means the boundary is currently a stopping condition, not a transition Mode B replay walks through.
-- `KernelStateMachine.from_history()` reconstructs exactly one generation. It has no concept of "the next generation" and is not meant to.
-
-None of this reconstructs the graph above. It detects that a graph like it might exist and refuses to guess at its shape.
+**Current status: all three phases below are implemented.** What they collectively prove — and, precisely, do not prove — is the subject of this document from here on.
 
 ---
 
 ## Why three phases
 
-Mode B as originally stated is one large capability: segment, verify, and connect, all at once. Decomposed, it's three much smaller problems with a hard boundary between them — and, critically, **two of the three barely need new code at all.**
+Mode B decomposes into three much smaller problems with a hard boundary between them:
 
 ```
-Phase 1: Segmentation      -- graph discovery, no replay
-Phase 2: Independent verification -- existing replay engine, run per segment
-Phase 3: Candidate lineage construction -- graph construction, no replay
+Phase 1: Segmentation      -- graph discovery, no replay [IMPLEMENTED]
+Phase 2: Independent verification -- existing replay engine, run per segment [IMPLEMENTED]
+Phase 3: Candidate lineage construction -- graph construction, no replay [IMPLEMENTED]
 ```
 
-The phases are ordered as a strict pipeline: Phase 2 consumes Phase 1's output and nothing else; Phase 3 consumes Phase 2's output and nothing else. Each phase has its own SHALL/SHALL NOT contract below, and each phase's contract assumes the previous phase's guarantees held — it does not re-derive them.
+Phase 2 consumes Phase 1's output and nothing else; Phase 3 consumes Phase 2's output and nothing else.
 
 ---
 
-## Phase 1 — Generation segmentation
+## Phase 1 — Generation segmentation [IMPLEMENTED: `generation_segmentation.py`]
 
-**Input:** a persisted audit log (and, implicitly, the decision log — both carry `generation_id`).
+**Input:** a persisted, already-reconstructed `List[ExecutionAuditRecord]` history.
+**Output:** `List[GenerationSegment]`, each a contiguous range sharing one `generation_id`.
 
-**Output:** an ordered list of segments, each a contiguous range of records sharing one `generation_id`.
+Nothing is replayed. Nothing is reconstructed. Pure grouping over the existing `generation_id` field — confirmed pure by AST-based import inspection (`test_module_never_imports_kernel_state_machine_or_hashlib`), not merely by docstring claim.
 
-```
-Generation 1
-Frames 1-84
+### Phase 1 SHALL (implemented, tested)
+- **SHALL derive segment boundaries purely from persisted `generation_id` values, in given order.** `test_two_generations_produce_two_ordered_segments`, `test_three_generations_produce_three_segments`.
+- **SHALL reject a segmentation where a previously-seen `generation_id` reappears** after a later, different one was witnessed — `UnsegmentableHistoryError`, `test_generation_reappearing_after_a_later_generation_is_unsegmentable`.
+- **SHALL produce independently checkable output.** `GenerationSegment.sequence_id_range`, direct field access.
 
-Generation 2
-Frames 85-141
-
-Generation 3
-Frames 142-...
-```
-
-**Nothing is replayed. Nothing is reconstructed.** This phase only discovers where the boundaries are — it is graph discovery over the existing `generation_id` field, not a new capability layered on top of replay.
-
-### Phase 1 SHALL
-
-- **SHALL derive segment boundaries purely from persisted `generation_id` values, in persisted sequence order.** A boundary is a point where consecutive records (ordered by `sequence_id` within a module) show a `generation_id` change. This is the same signal `kernel_state_replay.py` already checks for a single boundary — Phase 1 just checks for every boundary instead of stopping at the first.
-- **SHALL reject a segmentation where a previously-seen `generation_id` reappears after a later, different `generation_id` was already witnessed.** This is not a valid single-lineage segmentation — it indicates either data corruption or multiple interleaved engine instances sharing one log (see `kernel_state_replay.py`'s own docstring, limitation 1). Phase 1 must flag this as unsegmentable, not silently produce a segmentation that ignores it.
-- **SHALL produce output that is itself independently checkable** — each segment's record range, boundary positions, and `generation_id` should be inspectable without needing Phase 2 or Phase 3 to run first.
-
-### Phase 1 SHALL NOT
-
-- **SHALL NOT construct a `KernelStateMachine`, call `from_history()`, or perform any hash verification.** Phase 1 is a pure function over already-persisted `generation_id` values. If Phase 1's implementation ever needs to replay anything to determine where a segment ends, that's a sign Phase 1 and Phase 2 have been conflated again.
-- **SHALL NOT infer anything about *why* a boundary exists.** That question belongs to Phase 3, not Phase 1 — see "the open question," resolved below.
+### Phase 1 SHALL NOT (implemented, tested)
+- **SHALL NOT construct a `KernelStateMachine` or perform hash verification.** `test_module_never_imports_kernel_state_machine_or_hashlib` (real AST-based check, not substring search — an earlier draft of this test used a substring check and false-positived on this module's own docstring; fixed).
+- **SHALL NOT infer why a boundary exists.** No such inference exists anywhere in `generation_segmentation.py`.
 
 ---
 
-## Phase 2 — Independent verification
+## Phase 2 — Independent verification [IMPLEMENTED: `generation_segment_verification.py`]
 
-**Input:** one segment from Phase 1's output.
+**Input:** one `GenerationSegment` from Phase 1.
+**Output:** a `SegmentVerificationResult`, produced by `kernel_state_replay.py`'s existing `replay_and_verify_state_hashes()` — **unmodified**.
 
-**Output:** a `KernelReplayReport` for that segment (or equivalent), produced by running the *existing, unmodified* replay engine against it.
+### Phase 2 SHALL (implemented, tested)
+- **SHALL verify each segment via the existing, unmodified replay machinery**, seeded via `from_history()` with that segment's own `generation_id`. `test_single_real_generation_segment_is_fully_verified`, `test_two_real_generations_both_independently_fully_verified` — both built from genuinely real `DeterministicExecutionEngine.with_generation()` runs, not fabricated hash bytes (fabricated bytes would simply fail replay, since `replay_and_verify_state_hashes()` genuinely recomputes).
+- **SHALL treat each segment's verification as fully independent.** Each `.verify()` call constructs its own fresh `KernelStateMachine` internally; nothing is shared across segments — confirmed by `kernel_state_replay.py`'s own source, not assumed.
 
-```
-Replay(segment 1)
-Replay(segment 2)
-Replay(segment 3)
-```
+### Phase 2 SHALL NOT — the load-bearing cross-check (implemented, tested)
+> **If Phase 1's segmentation is correct, every Phase 2 replay of a single segment must report no generation boundary.**
 
-Each segment is, by Phase 1's own contract, single-generation — which is exactly what `kernel_state_replay.py` and `KernelStateMachine.from_history()` already handle. This is the phase that reuses almost everything already built.
-
-### Phase 2 SHALL
-
-- **SHALL verify each segment using `kernel_state_replay.py`'s existing `replay_and_verify_state_hashes()`, unmodified**, seeded via `KernelStateMachine.from_history()` with that segment's own `generation_id` — the same call shape A2 already proves works for a real single-generation history.
-- **SHALL treat each segment's verification as fully independent of every other segment's.** Segment 2's replay must not be constructed using any state carried over from segment 1's replay (no shared `KernelStateMachine` instance, no shared audit log accumulator) — each is its own `from_history()` call.
-- **SHALL preserve historical generation identity — never mint a new one.** This is `from_history()`'s existing guarantee (no `generation_id` parameter on `KernelStateMachine.__init__`, only on `from_history()`); Phase 2 must not introduce any path that bypasses it.
-
-### Phase 2 SHALL NOT
-
-- **SHALL NOT report a `generation_boundary_index` for any segment, if Phase 1 segmented correctly.** This is the load-bearing cross-check between the two phases, stated as a hard invariant:
-
-  > **If Phase 1's segmentation is correct, every Phase 2 replay of a single segment must report `generation_boundary_index is None`.**
-  >
-  > If any segment's replay *does* report a boundary, that is proof Phase 1 either mis-segmented (a boundary it should have found and split on was missed) or the underlying data is more tangled than a clean single-lineage history (e.g. two generations' records interleaved by `sequence_id` rather than cleanly partitioned — which Phase 1's own SHALL clause above is supposed to catch and reject, so this would indicate Phase 1's rejection check itself has a gap). Either way, a boundary appearing inside a Phase-1-declared segment is a test failure for the *pipeline*, not a normal outcome to route around.
-
-- **SHALL NOT attempt to verify anything across a segment boundary.** That is Phase 3's job. A Phase 2 implementation that quietly stitches segment *i* and segment *i+1* together to keep replaying has re-invented Mode B monolithically and defeated the point of the split.
+Implemented as `SegmentVerificationResult.unexpectedly_crosses_generation_boundary`. Proven both ways: `test_two_real_generations_both_independently_fully_verified` confirms it's `False` for correctly-segmented real data; `test_segment_spanning_two_real_generations_is_flagged_not_silently_passed` hand-corrupts a segment (a shape Phase 1 itself could never produce) and confirms the property correctly flags it rather than silently passing or crashing uninformatively.
 
 ---
 
-## Phase 3 — Candidate lineage construction
+## Phase 3 — Candidate lineage construction [IMPLEMENTED: `candidate_lineage_construction.py`]
 
-**Input:** the ordered list of segments from Phase 1, each independently verified by Phase 2 (a `KernelReplayReport` with `fully_verified is True` and no reported boundary, per Phase 2's contract above).
+**Input:** Phase 1's segments plus Phase 2's verification results, paired.
+**Output:** a `CandidateLineageGraph` — deliberately never called "the lineage" anywhere in code, tests, or this document.
 
-**Output:** the candidate lineage graph — the best graph consistent with the evidence, constructed from verified islands. Deliberately not called "the connected lineage graph" or "the reconstructed lineage" — see the SHALL NOT clause below on why "candidate" and "constructed" are the correct verbs here, not "connect" or "prove."
+### Phase 3 SHALL (implemented, tested)
+- **SHALL only include Phase-2-verified segments.** `CandidateLineageGraph.excluded_segments`, `coverage_is_partial` property. `test_unverified_segment_is_excluded_and_no_edge_bridges_across_it` proves an unverified segment is excluded *and* that no edge is built bridging across the gap it leaves.
+- **SHALL make the continuity assumption explicit on every edge.** `CandidateLineageEdge.continuity_caveat`, present on every constructed edge, not optional.
 
-```
-Gen A
-  |
-  v
-Gen B
-  |
-  v
-Gen C
-```
-
-This is a graph-construction problem over already-verified segments, not a replay problem — Phase 3 never touches `KernelStateMachine` or any hash computation directly.
-
-### Phase 3 SHALL
-
-- **SHALL only include segments that Phase 2 independently verified in the candidate graph.** An unverified or partially-verified segment (per Phase 2's `fully_verified` flag) must not be silently included as if it were sound.
-- **SHALL distinguish, in its output, "verified within a generation" from "included in the candidate graph."** These are different-strength claims — a segment being internally sound says nothing about whether the *edge* placing it next to another segment is sound. `KernelReplayReport`'s existing `generation_boundary_index` field already encodes exactly this kind of distinction for the single-boundary case; Phase 3's report needs the same honesty extended across however many edges it constructs.
-- **SHALL make explicit, every time it constructs an edge, the assumption it is relying on and cannot independently verify: that adjacency in the persisted log means causal continuity of the same kernel instance.** See "the open question," below — this is an inherited limitation, not one Phase 3 introduces, but Phase 3 is the phase that actually *acts* on the assumption by placing an edge, so it is the phase whose output must carry the caveat forward rather than let it go silent.
-
-### Phase 3 SHALL NOT
-
-- **SHALL NOT claim full lineage verification on partial coverage.** If 3 of 4 discovered segments were independently verified and one was not, the report must say exactly that — not round up to "lineage reconstructed." This mirrors `PHOENIX_VERIFICATION_STATE.md`'s own standing rule: every claim is scoped to exactly what was checked.
-- **SHALL NOT assert *why* a transition occurred as a proven fact.** Phase 3 may *note supporting evidence* (see below — a fault record immediately preceding a boundary is consistent with an administrative reset) but must report this as corroboration, not proof, and must not treat its absence as evidence of tampering (see below for why the absence case is genuinely ambiguous).
-- **SHALL NOT describe its output as "connecting" or "the lineage," unqualified.** Phase 3 does not prove an edge between two segments is a genuine causal continuation of the same kernel instance — see the single-instance-continuity caveat below. It constructs the graph that best fits the evidence available, which is a narrower claim than "this is what happened." Output, documentation, and any future UI surfacing this graph should say "candidate lineage" or "inferred lineage," not "the lineage" or "reconstructed history," to keep this distinction visible to whoever reads the result, not just to whoever wrote this document.
+### Phase 3 SHALL NOT (implemented, tested)
+- **SHALL NOT claim full coverage on partial data.** `coverage_is_partial` exists specifically so this can't be silently missed.
+- **SHALL NOT assert *why* a transition occurred as proven fact.** `fault_record_precedes_boundary` is corroboration only — `test_edge_without_preceding_fault_record_is_not_marked_suspicious` proves its *absence* is explicitly not treated as suspicious, matching the known schema gap (some fault paths trip `FAULTED` before an audit record is ever constructed).
+- **SHALL NOT describe output as "the lineage."** Enforced by naming throughout: `CandidateLineageGraph`, `CandidateLineageEdge`, `construct_candidate_lineage()` — no type or function in this module is named without "candidate."
 
 ---
 
-## The open question — resolved (for now): do not add a new record type
+## The Formal Question, Answered
 
-**Resolution: defer.** Do not introduce a dedicated transition-logging record type at this stage. The reasoning below is sharper than "avoid scope creep," though that's also true.
+**The question:** under exactly what conditions can Phoenix claim that two persisted records belong to the same execution generation?
 
-**Why the current inference is sound enough to build on:**
+The answer has exactly two parts, and they are not points on a continuum of confidence — they are categorically different kinds of claim.
 
-```
-Generation changes
-       |
-       v
-persisted generation_id changes
-       |
-       v
-boundary exists
-```
+### Theorem 1 — Within-generation continuity is provable
 
-This inference is deterministic, reproducible, and independently checkable without any new schema — exactly the property Phase 1 depends on. `generation_id` only ever changes via one code path (`FAULTED -> INITIALIZING` in `KernelStateMachine.transition_to()`), so a change in the persisted value is real evidence a boundary occurred.
+**Statement:** for a segment of records sharing one `generation_id`, Phase 2 reporting `fully_verified=True` is possible if and only if a real `KernelStateMachine`, initialized fresh via `from_history()` at that `generation_id` with zero prior processed state, and fed exactly those records' frames in exactly that order, derives a `state_hash` at every step matching that record's persisted `prior_state_hash`.
 
-**Why introducing a new record type now would be premature:** a `GenerationTransitionRecord` (or equivalent) means a new schema, new append logic, a new corruption-rejection test suite, a new persistence round-trip, a new entry in the cold-boot reconstruction contract, new append-ordering guarantees, new hashing — the same shape of work every existing record type in this codebase required (each of the three current logs has 9-15 dedicated tests). That is justified when a real question can't be answered without it. Nothing in Phases 1-3 above hits that wall: Phase 1 doesn't need it (segmentation is a pure function of existing `generation_id` values), Phase 2 doesn't need it (verification is per-segment, unaware of *why* the segment ended), and Phase 3 can note supporting evidence without it (below).
+**What this proves:** no record in the segment can have been modified in isolation — altered while every other record in the segment stays unchanged — without detection, except under failure of the underlying cryptographic assumptions (SHA-256 collision or second-preimage resistance). This is a narrower claim than "the segment reflects genuine, unmodified original inputs," and the wording is deliberate: someone with the ability to execute the same deterministic code from genesis on different, chosen inputs could construct an entirely different segment that is *also* internally self-consistent and *also* reports `fully_verified=True`. That is not a cryptographic attack — SHA-256 is not broken by it, and the resulting chain is completely honest about what it actually computed. Theorem 1 proves the chain cannot be tampered with piecemeal after the fact; it says nothing about whether the inputs the chain was built from were the genuine ones. See "internal consistency, not external authenticity" in "Explicitly out of scope," below, which this wording is written to match precisely rather than loosely gesture at.
 
-**Two caveats on the inference, surfaced by working through Phases 2 and 3 above, that weren't visible when the question was first raised:**
+**Evidence:** `test_two_real_generations_both_independently_fully_verified` and the whole Phase 2 test suite, built from genuinely executed engine runs, not fabricated fixtures.
 
-1. **A fault record is corroborating evidence for a reset, but its absence proves nothing.** Phase 3 can check whether the segment immediately preceding a boundary ends in an audit record with `success=False`, as support for "this boundary looks like an administrative reset following a real fault." But `deterministic_execution_engine.py`'s frame-integrity and sequence-violation fault paths trip `FAULTED` *before* an audit record is ever constructed for the triggering frame — so a reset caused by a corrupted or out-of-order frame leaves no audit record at all for the actual fault. Phase 3 SHALL treat a trailing fault record as supporting evidence when present, and SHALL NOT treat its absence as suspicious — the schema simply doesn't guarantee one exists for every real fault.
+### Theorem 2 — Cross-generation continuity is not provable, under the current persisted evidence model, ever
 
-2. **The inference silently assumes single-instance continuity — an assumption Phase 3 inherits, not one it creates.** `kernel_state_replay.py`'s own docstring already names this limitation for the single-boundary case: nothing in the schema distinguishes *this generation is a reset-continuation of the same kernel instance* from *this generation is an unrelated kernel instance that happens to write to the same three log files*. Both paths mint `generation_id` via `uuid.uuid4()` — one via the reset branch, one via ordinary `KernelStateMachine.__init__()` — and nothing persisted distinguishes which code path produced a given value after the fact. Phase 3's candidate-graph construction is exactly where this matters: placing an edge between two segments asserts causal continuity that adjacency-in-the-log alone does not prove. This is why Phase 3's SHALL clauses above require every edge to carry this caveat forward explicitly, rather than Phase 3 presenting the graph as if continuity were already established.
+**Statement:** for two Phase-2-verified segments A and B with distinct `generation_id` values, adjacent in persisted order, there is no function of persisted evidence — however constructed, however much circumstantial evidence is gathered — that can distinguish "B is a genuine continuation of the same kernel instance that produced A" from "B is an entirely independent instance whose log happened to be appended directly after A's."
 
-**When to revisit:** if, after Phases 1-3 are built and in use, a real question surfaces that the current inference genuinely cannot answer — e.g., needing to distinguish a true reset-continuation from a coincidental fresh-instance collision, or needing an explicit trigger reason/actor for audit purposes beyond what a preceding fault record can corroborate — that is the signal to reopen this question, not before. Whether "why" belongs in the kernel layer or a higher-level administrative audit layer is a separate architectural decision to make at that point, not now.
+**Why, precisely:** `generation_id` at a reset is minted via `uuid.uuid4()` — a draw from a source of randomness with zero dependence on the prior `generation_id`, on the machine's prior state, or on any other persisted field. This is not an implementation gap; it is confirmed directly in `kernel_state_replay.py`'s own source comment: the `FAULTED -> INITIALIZING` transition "would mint a genuinely new random generation_id (identical behavior to production, since it's the same code path)." Since the new value is statistically independent of everything persisted about the old one, no algorithm operating only on persisted records — Phase 3's or any future one — can extract information distinguishing the two hypotheses above. This is a fact about the joint distribution of what the schema persists, not a limitation of `candidate_lineage_construction.py`'s specific logic.
+
+**This is why every edge Phase 3 constructs carries `continuity_caveat` unconditionally**, and why `fault_record_precedes_boundary` is corroboration, never proof: no amount of circumstantial evidence changes Theorem 2's conclusion, because the thing being inferred (same-instance continuity) is, by construction, uncorrelated with everything observable.
+
+### The unifying principle
+
+Theorem 2 is not a Phase-3-specific finding — it is the same underlying fact, applied at three points that have, until now, been documented as three separate caveats:
+
+| Where it was previously stated | What it actually is |
+|---|---|
+| `kernel_state_replay.py`'s "limitation 2" (single generation only) | Theorem 2 applied to why replay must stop at a boundary rather than guess through it |
+| Phase 1's "genesis is always assumed, never proven" (`COLD_BOOT_RECONSTRUCTION_CONTRACT.md`'s Canonical Replay Verification SHALL NOT) | Theorem 2 applied to the *first* record in any history — genesis itself is a `generation_id` with nothing upstream of it to check, for exactly the same reason a mid-history boundary has nothing linking it backward |
+| `REPLAY_GENERATION_MODEL.md`'s original single-instance-continuity caveat | Theorem 2 stated informally, before this document derived it formally |
+
+All three are the same theorem. **Call it the Generation Identity Independence Principle**: `generation_id` values are, by design, statistically independent across a reset — which is precisely what makes them trustworthy as *identity* (two different generations will essentially never collide) and precisely what makes them useless as *continuity evidence* (a genuine reset and a coincidental fresh instance are indistinguishable from the value alone). The same design choice that closed Gap 1b cannot also close the cross-generation lineage question — they are opposite requirements on the same field.
+
+### What would have to change for Theorem 2's status to change
+
+Not vague future work — the precise structural requirement: a new piece of *persisted evidence that is not independent of the prior generation*. Concretely, this means either (a) the reset transition itself persists a value derived from or referencing the prior `generation_id` (breaking the independence Theorem 2's proof relies on), or (b) an external, out-of-band attestation of process identity that the current three-log schema has no field for. This is exactly what the previously-deferred `GenerationTransitionRecord` idea would provide, and exactly why deferring it was correct: without it, no amount of additional replay logic changes Theorem 2's conclusion, so building more replay machinery ahead of that schema decision would have been pure speculation. The deferral is not "we haven't gotten to it" — it is "nothing except this specific kind of schema change can do it."
+
+---
+
+## The open question — resolved, now with the formal justification behind it
+
+**Decision, unchanged from before: do not add `GenerationTransitionRecord` or any equivalent yet.** What's new is *why* this is now a settled conclusion rather than a judgment call: Theorem 2 proves that no amount of application-layer cleverness — better heuristics, more corroborating signals, richer candidate-graph logic — can ever cross the proof/candidate boundary Phase 3 respects. The only lever that could ever move it is the schema change itself. This means continuing to build replay/lineage logic without that schema change cannot get closer to proving cross-generation continuity, no matter how sophisticated it becomes — a fact worth having proven rather than assumed, since it forecloses a whole category of future "maybe if we just add more evidence-gathering" proposals.
+
+**When to revisit:** unchanged — a real, demonstrated need to distinguish genuine continuation from coincidental collision, not a hypothetical one.
 
 ---
 
 ## Explicitly out of scope for this document
 
-- No code changes. `from_history()` remains single-generation, as built. `kernel_state_replay.py` remains stop-on-boundary, as built.
-- No new record type — see resolution above.
-- No claim that Phases 1-3 are close to buildable in sequence within any particular timeframe — this document defines what each phase would have to satisfy and how they compose, not a timeline or a line-by-line implementation sketch.
-- `ExecutionPolicyDecision.decision_hash`'s continued generation-blindness (see `PHOENIX_VERIFICATION_STATE.md` Gap 1b) is a separate, orthogonal gap — none of Phases 1-3 touch it.
+- No code changes in this revision. All three phases are exactly as previously committed (451/451).
+- No decision to build `GenerationTransitionRecord` — Theorem 2 explains why it would be required to change the answer, not that it should be built now.
+- No claim about `KernelStateEnvelope.state_hash` consistency outside Mode B's scope — that remains Gap 1's separate question (`COLD_BOOT_RECONSTRUCTION_CONTRACT.md`).
+- No claim that Theorem 1 authenticates *who* produced a segment's records, or that its inputs were genuine — only that the segment is internally self-consistent. See Theorem 1's own "What this proves," above, which states this boundary directly rather than leaving it only here. This is a boundary of every hash-based check in this codebase, not specific to Mode B.
