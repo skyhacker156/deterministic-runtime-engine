@@ -13,13 +13,23 @@ audit_record_to_json/audit_record_from_json, which already handles
 ExecutionAuditRecord's three opaque hashes plus the derived audit_hash
 and the success/error_message consistency rule. This file adds nothing
 new there, only ordering and multi-record file handling.
+
+v2 (2026-08-06): implements Option A from
+VERIFICATION_INTEGRATION_CONTRACT.md, parallel to
+decision_record_log.py's own v2 change -- see that file's docstring
+for the full reasoning (classify-not-verify, why the message prefix is
+preserved verbatim, why non-JSON lines are unaffected). Signature,
+return type, exception type, and stop-on-first-failure behavior are
+all unchanged; only the failure message gains classification detail.
 """
 
+import json
 import os
 from typing import List
 
 from execution_audit_contract import ExecutionAuditRecord
 from execution_audit_persistence import audit_record_to_json, audit_record_from_json
+from historical_schema_recognition import classify_execution_audit_record_payload
 
 
 class AuditLogCorruptionError(Exception):
@@ -49,6 +59,12 @@ def read_all_audit_records(path: str) -> List[ExecutionAuditRecord]:
     lines are skipped. Any non-blank line that fails to parse or
     reconstruct raises AuditLogCorruptionError immediately, naming the
     1-indexed line number.
+
+    As of v2, the raised message ALSO includes classification detail
+    when the failing line can be classified -- see
+    decision_record_log.py's read_all_decision_records() docstring for
+    the full reasoning, identical here. See
+    VERIFICATION_INTEGRATION_CONTRACT.md.
     """
     records: List[ExecutionAuditRecord] = []
     with open(path, "r", encoding="utf-8") as f:
@@ -59,9 +75,17 @@ def read_all_audit_records(path: str) -> List[ExecutionAuditRecord]:
             try:
                 records.append(audit_record_from_json(line))
             except Exception as e:
+                classification_note = ""
+                try:
+                    payload = json.loads(line)
+                    if isinstance(payload, dict):
+                        classification = classify_execution_audit_record_payload(payload)
+                        classification_note = " " + classification.explanation()
+                except Exception:
+                    pass  # line isn't valid JSON at all -- nothing to classify
                 raise AuditLogCorruptionError(
                     f"Line {line_number} of '{path}' failed to parse as a valid "
-                    f"ExecutionAuditRecord: {e}"
+                    f"ExecutionAuditRecord: {e}.{classification_note}"
                 ) from e
     return records
 

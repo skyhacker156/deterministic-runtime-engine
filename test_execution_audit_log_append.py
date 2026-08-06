@@ -7,9 +7,14 @@ test_decision_record_log_append.py. Same narrow question: many
 ExecutionAuditRecords appended sequentially to one file -- read back in
 order, with all three opaque hashes plus the derived audit_hash intact.
 No crash safety, no concurrent writers.
+
+v2 (2026-08-06): adds tests for VERIFICATION_INTEGRATION_CONTRACT.md's
+Option A -- the enriched corruption message -- parallel to
+test_decision_record_log_append.py's own v2 additions.
 """
 
 import hashlib
+import json
 import os
 import tempfile
 
@@ -190,6 +195,66 @@ def test_corrupt_middle_line_raises_with_line_number(temp_log_path):
 
     with pytest.raises(AuditLogCorruptionError, match="Line 3"):
         read_all_audit_records(temp_log_path)
+
+
+def test_recognized_historical_schema_line_message_includes_classification(temp_log_path):
+    """
+    Option A from VERIFICATION_INTEGRATION_CONTRACT.md: a line matching
+    the known pre-generation_id ExecutionAuditRecord schema (missing
+    generation_id, otherwise well-formed) still raises
+    AuditLogCorruptionError, but the message now says why in a way that
+    doesn't read as data corruption.
+    """
+    historical_line = json.dumps({
+        "sequence_id": 1,
+        "input_hash": "aa" * 32,
+        "prior_state_hash": "bb" * 32,
+        "output_hash": "cc" * 32,
+        "module_id": "phoenix_a_core_v1",
+        "success": True,
+        "frame_timestamp_ns": 1000,
+        "error_message": None,
+    })
+    with open(temp_log_path, "w", encoding="utf-8") as f:
+        f.write(historical_line + "\n")
+
+    with pytest.raises(AuditLogCorruptionError) as exc_info:
+        read_all_audit_records(temp_log_path)
+
+    message = str(exc_info.value)
+    assert "Line 1" in message
+    assert "valid but unverifiable under current rules" in message
+    assert "historical verifier" in message
+
+
+def test_genuinely_malformed_json_line_message_unchanged(temp_log_path):
+    """
+    Same worked example as decision_record_log's own version: a line
+    that isn't valid JSON at all cannot be classified, so the message
+    is identical to pre-integration behavior.
+    """
+    with open(temp_log_path, "w", encoding="utf-8") as f:
+        f.write("{not valid json\n")
+
+    with pytest.raises(AuditLogCorruptionError) as exc_info:
+        read_all_audit_records(temp_log_path)
+
+    message = str(exc_info.value)
+    assert "Line 1" in message
+    assert "historical" not in message.lower()
+    assert "unverifiable" not in message.lower()
+
+
+def test_genuinely_unrecognized_but_valid_json_line_message_includes_unrecognized_detail(temp_log_path):
+    with open(temp_log_path, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"totally": "unrelated", "fields": True}) + "\n")
+
+    with pytest.raises(AuditLogCorruptionError) as exc_info:
+        read_all_audit_records(temp_log_path)
+
+    message = str(exc_info.value)
+    assert "Unrecognized" in message
+    assert "valid but unverifiable under current rules" not in message
 
 
 def test_blank_lines_are_skipped_not_treated_as_corruption(temp_log_path):

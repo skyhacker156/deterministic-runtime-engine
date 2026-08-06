@@ -7,9 +7,15 @@ Same narrow question: many DecisionRecords appended sequentially to one
 file -- read back in the same order, with both decision_hash (opaque)
 and record_hash (derived) intact, including across separate
 open/append/close cycles. No crash safety, no concurrent writers.
+
+v2 (2026-08-06): adds tests for VERIFICATION_INTEGRATION_CONTRACT.md's
+Option A -- the enriched corruption message. Three distinct cases:
+recognized historical schema, genuinely malformed JSON (unaffected),
+and valid-but-unrecognized JSON.
 """
 
 import hashlib
+import json
 import os
 import tempfile
 
@@ -171,6 +177,73 @@ def test_corrupt_middle_line_raises_with_line_number(temp_log_path):
 
     with pytest.raises(DecisionLogCorruptionError, match="Line 3"):
         read_all_decision_records(temp_log_path)
+
+
+def test_recognized_historical_schema_line_message_includes_classification(temp_log_path):
+    """
+    Option A from VERIFICATION_INTEGRATION_CONTRACT.md: a line matching
+    the known pre-generation_id DecisionRecord schema (missing
+    generation_id, otherwise well-formed) still raises
+    DecisionLogCorruptionError -- reading old data is still refused,
+    per the archival-boundary policy -- but the message now says why in
+    a way that doesn't read as data corruption.
+    """
+    historical_line = json.dumps({
+        "sequence_id": 1,
+        "module_id": "phoenix_a_core_v1",
+        "allowed": True,
+        "decision_hash": "aa" * 32,
+    })
+    with open(temp_log_path, "w", encoding="utf-8") as f:
+        f.write(historical_line + "\n")
+
+    with pytest.raises(DecisionLogCorruptionError) as exc_info:
+        read_all_decision_records(temp_log_path)
+
+    message = str(exc_info.value)
+    assert "Line 1" in message  # existing prefix preserved verbatim
+    assert "valid but unverifiable under current rules" in message
+    assert "historical verifier" in message
+
+
+def test_genuinely_malformed_json_line_message_unchanged(temp_log_path):
+    """
+    The two-stage distinction's own worked example, per
+    VERIFICATION_INTEGRATION_CONTRACT.md: a line that isn't valid JSON
+    at all cannot be classified -- there's no dict to inspect -- so the
+    message must carry no classification detail, identical to the
+    pre-integration behavior. Same test data as
+    test_corrupt_middle_line_raises_with_line_number above, checked
+    here for message CONTENT rather than just the "Line N" match.
+    """
+    with open(temp_log_path, "w", encoding="utf-8") as f:
+        f.write("{not valid json\n")
+
+    with pytest.raises(DecisionLogCorruptionError) as exc_info:
+        read_all_decision_records(temp_log_path)
+
+    message = str(exc_info.value)
+    assert "Line 1" in message
+    assert "historical" not in message.lower()
+    assert "unverifiable" not in message.lower()
+
+
+def test_genuinely_unrecognized_but_valid_json_line_message_includes_unrecognized_detail(temp_log_path):
+    """
+    A third case, distinct from both above: valid JSON, but matching
+    neither the current nor the known historical schema. Classification
+    runs (there IS a dict), but resolves to UNRECOGNIZED -- the message
+    should say so, distinctly from the recognized-historical case.
+    """
+    with open(temp_log_path, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"totally": "unrelated", "fields": True}) + "\n")
+
+    with pytest.raises(DecisionLogCorruptionError) as exc_info:
+        read_all_decision_records(temp_log_path)
+
+    message = str(exc_info.value)
+    assert "Unrecognized" in message
+    assert "valid but unverifiable under current rules" not in message
 
 
 def test_blank_lines_are_skipped_not_treated_as_corruption(temp_log_path):
