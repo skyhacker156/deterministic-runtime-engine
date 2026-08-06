@@ -25,65 +25,34 @@ that was merely considered.
                                        |
                                        v
                               Produce Audit Record
-"""
 
-import hashlib
-import struct
-from dataclasses import dataclass, field
-from typing import Optional
+v2.3 (2026-08-06): ExecutionPolicyDecision and DecisionValidationError
+moved to execution_policy_decision_contract.py -- see that module's own
+docstring for why (test_verifier_runtime_isolation.py caught
+causal_history_verifier.py transitively importing this entire module,
+including ExecutionModuleRegistry/ExecutionPolicy/ExecutionPolicyState,
+merely to get ExecutionPolicyDecision, which never needed any of them).
+Imported here instead of defined here -- ExecutionAuthorizer's behavior
+is completely unchanged; only the location of its own dependency moved.
+RecordExecutionError stays here, since it describes a failure mode of
+ExecutionAuthorizer.record_execution() specifically, not of
+ExecutionPolicyDecision's construction.
+"""
 
 from execution_module_registry import ExecutionModuleRegistry, ModuleCapabilities
 from module_lifecycle import ModuleState
 from execution_policy import ExecutionPolicy
 from execution_policy_state import ExecutionPolicyState
-
-
-class DecisionValidationError(Exception):
-    """Raised when an ExecutionPolicyDecision is constructed with invalid values."""
-    pass
+from execution_policy_decision_contract import (
+    ExecutionPolicyDecision,
+    DecisionValidationError,
+)
 
 
 class RecordExecutionError(Exception):
     """Raised when record_execution() is called in a way that violates
     the authorize-then-record contract."""
     pass
-
-
-@dataclass(frozen=True)
-class ExecutionPolicyDecision:
-    module_id: str
-    allowed: bool
-    reason: str
-    observed_lifecycle_state: ModuleState
-    policy_hash: bytes
-    capability_snapshot_hash: bytes
-    observed_invocation_count: int
-    max_allowed_invocations: Optional[int]
-
-    decision_hash: bytes = field(init=False)
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.module_id, str) or not self.module_id.strip():
-            raise DecisionValidationError("module_id must be a non-empty string")
-        if not isinstance(self.reason, str) or not self.reason.strip():
-            raise DecisionValidationError("reason must be a non-empty string")
-        if not isinstance(self.policy_hash, bytes) or len(self.policy_hash) != 32:
-            raise DecisionValidationError("policy_hash must be a 32-byte digest")
-        if not isinstance(self.capability_snapshot_hash, bytes) or len(self.capability_snapshot_hash) != 32:
-            raise DecisionValidationError("capability_snapshot_hash must be a 32-byte digest")
-
-        object.__setattr__(self, "decision_hash", self._compute_decision_hash())
-
-    def _compute_decision_hash(self) -> bytes:
-        hasher = hashlib.sha256()
-        hasher.update(struct.pack(">B", 1))
-        hasher.update(self.module_id.encode("utf-8"))
-        hasher.update(b"\x01" if self.allowed else b"\x00")
-        hasher.update(self.reason.encode("utf-8"))
-        hasher.update(self.observed_lifecycle_state.name.encode("utf-8"))
-        hasher.update(self.policy_hash)
-        hasher.update(self.capability_snapshot_hash)
-        return hasher.digest()
 
 
 class ExecutionAuthorizer:

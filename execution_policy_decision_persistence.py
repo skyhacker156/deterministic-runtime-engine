@@ -45,8 +45,8 @@ any hash-based provenance check is wired up.
 
 import json
 
-from execution_authorizer import ExecutionPolicyDecision
-from module_lifecycle import ModuleState
+from execution_policy_decision_contract import ExecutionPolicyDecision
+from module_state import ModuleState
 
 
 def policy_decision_to_json(decision: ExecutionPolicyDecision) -> str:

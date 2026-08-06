@@ -45,10 +45,14 @@ future record type without a demonstrated need those three don't
 already cover.
 
 WHY A WRAPPER, NOT NEW FIELDS ON ExecutionPolicyDecision ITSELF:
-ExecutionPolicyDecision lives in execution_authorizer.py and is
-deliberately kept free of any dependency on kernel state or execution
-ordering -- see decision_record_contract.py's own docstring for the
-identical reasoning already applied to keeping generation_id off
+ExecutionPolicyDecision lives in execution_policy_decision_contract.py
+(moved there 2026-08-06, out of execution_authorizer.py -- see that
+module's own docstring for why: a pure verifier needing
+ExecutionPolicyDecision was transitively importing the entire
+authorizer/registry/policy stack) and is deliberately kept free of any
+dependency on kernel state or execution ordering -- see
+decision_record_contract.py's own docstring for the identical
+reasoning already applied to keeping generation_id off
 ExecutionPolicyDecision/decision_hash. Adding sequence_id there would
 mean authorize() takes a sequence_id parameter, making policy
 evaluation aware of frame ordering -- a real architectural coupling,
@@ -69,7 +73,7 @@ import hashlib
 import struct
 from dataclasses import dataclass, field
 
-from execution_authorizer import ExecutionPolicyDecision
+from execution_policy_decision_contract import ExecutionPolicyDecision
 
 
 class PolicyDecisionRecordValidationError(Exception):

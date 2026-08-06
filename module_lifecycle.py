@@ -13,20 +13,23 @@ lifecycle manager answers "is this module currently ALLOWED to execute
 right now" — a module can exist in the registry while being FAULTED or
 RETIRED in the lifecycle manager, and the engine must consult lifecycle
 state, not registry presence alone, before dispatching to a module.
+
+v2 (2026-08-06): ModuleState moved to module_state.py -- see that
+module's own docstring for why (test_verifier_runtime_isolation.py
+caught causal_history_verifier.py, via ExecutionPolicyDecision's own
+type dependency, transitively importing this entire file --
+ModuleLifecycleManager included -- merely to get the ModuleState enum
+type). Imported here instead of defined here -- ModuleLifecycleManager's
+own behavior is completely unchanged; only the enum's location moved,
+and it is re-exported here so every existing
+`from module_lifecycle import ModuleState` import continues to work
+without modification.
 """
 
-from enum import Enum, auto
 from dataclasses import dataclass
 from typing import Dict, FrozenSet, Optional
 
-
-class ModuleState(Enum):
-    DISCOVERED = auto()
-    VALIDATED = auto()
-    REGISTERED = auto()
-    ACTIVE = auto()
-    FAULTED = auto()
-    RETIRED = auto()
+from module_state import ModuleState
 
 
 class ModuleLifecycleError(Exception):
