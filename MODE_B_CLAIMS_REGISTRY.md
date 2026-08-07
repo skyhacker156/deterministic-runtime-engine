@@ -42,6 +42,8 @@
 
 **Limitation, stated as precisely as the theorem itself:** this is not a "not yet" status. No function of persisted evidence — however constructed, however much circumstantial evidence is gathered — can ever close this gap under the current schema. The only thing that could change this status is a schema change persisting evidence dependent on the prior `generation_id` (e.g., the deliberately-deferred `GenerationTransitionRecord`). See `REPLAY_GENERATION_MODEL.md`'s "What would have to change" section for the exact structural requirement, and its "when to revisit" criteria for why that record type remains deferred rather than built.
 
+**Semantic inflation risk for future integrators (added 2026-08-06, `ADVERSARIAL_METHODOLOGY.md`):** `SegmentVerificationResult.fully_verified` proves only within-segment continuity (`MB-001`). Nothing in that property's name warns against reading two adjacent, both-`fully_verified` segments as implying the *boundary between them* is also verified — `MB-003` says it structurally cannot be. This is not a risk in current code (no aggregation or confidence-scoring exists yet to make this mistake), but a real risk for whatever is built next on top of Mode B — a dashboard, a report, an alert. **Any future code presenting `fully_verified` results to a human or another system MUST NOT imply cross-segment continuity from two individually-true `fully_verified` values without also surfacing `MB-003`'s boundary alongside them.**
+
 ---
 
 ## MB-004 — Candidate lineage construction
