@@ -15,7 +15,7 @@ not touch ExecutionModuleRegistry or DeterministicExecutionEngine. See
 KNOWN GAPS below for what a full recovery model would still need
 beyond this.
 
-FOUR CHECKS PERFORMED (each independently, each honestly provable from
+FIVE CHECKS PERFORMED (each independently, each honestly provable from
 what is actually persisted today):
 
 1. Decision ancestry: every ExecutionAuditRecord in the audit log has
@@ -76,6 +76,26 @@ what is actually persisted today):
    test_verifier_runtime_isolation.py's subprocess-based proof of this
    property for the whole module; Check 4 must not be the check that
    breaks it.
+
+5. Policy decision orphan detection (NEW, 2026-08-06 -- closes the
+   PG-001 provenance-graph adversarial finding below, optional): every
+   PolicyDecisionRecord traces to a real, persisted DecisionRecord at
+   the same (sequence_id, generation_id) -- the REVERSE direction of
+   Check 4. Without this check, Checks 1-4 collectively verify
+   DecisionRecord -> PolicyDecisionRecord and DecisionRecord ->
+   Registration, but nothing ever verified PolicyDecisionRecord ->
+   DecisionRecord. A fabricated PolicyDecisionRecord for a
+   (sequence_id, generation_id) where no real decision was ever made
+   -- for a module that was never registered, even -- was invisible to
+   every other check: Checks 1-3 never inspect policy_decision_records
+   at all, and Check 4 only ever walks FROM decision_records, never
+   FROM policy_decision_records. Found via adversarial review of
+   PROVENANCE_GRAPH_MODEL.md's own stated graph model, which named the
+   PolicyDecisionRecord -> registration edge as transitive-only but did
+   not, until this finding, notice the more basic
+   PolicyDecisionRecord -> DecisionRecord edge was entirely unchecked
+   in either direction. Same optionality as Check 4: only runs when
+   policy_decision_log_path is supplied.
 
 ===========================================================================
 KNOWN GAPS -- explicitly NOT checked by this module, and why
@@ -374,6 +394,45 @@ def _check_policy_decision_provenance(
     return failures
 
 
+def _check_policy_decision_orphans(
+    decision_records, policy_decision_records
+) -> List[str]:
+    """
+    Check 5: the reverse direction of Check 4. Check 4 verifies every
+    DecisionRecord traces to a real PolicyDecisionRecord; this verifies
+    every PolicyDecisionRecord traces to a real DecisionRecord. Without
+    it, a PolicyDecisionRecord can be fabricated at a (sequence_id,
+    generation_id) where no real decision was ever made, and it is
+    invisible to every other check -- Checks 1-3 never inspect
+    policy_decision_records at all, and Check 4 only ever walks FROM
+    decision_records, never FROM policy_decision_records. See this
+    module's docstring, Check 5, for the full account of how this gap
+    was found (adversarial review of PROVENANCE_GRAPH_MODEL.md's own
+    stated graph model).
+
+    Join key is (sequence_id, generation_id) -- identical to Check 4's
+    join key, walked in the opposite direction.
+    """
+    failures: List[str] = []
+
+    decision_keys = {
+        (d.sequence_id, d.generation_id) for d in decision_records
+    }
+
+    for policy_decision in policy_decision_records:
+        key = (policy_decision.sequence_id, policy_decision.generation_id)
+        if key not in decision_keys:
+            failures.append(
+                f"Policy decision orphan: PolicyDecisionRecord "
+                f"(sequence_id={policy_decision.sequence_id}, "
+                f"generation_id={policy_decision.generation_id.hex()}) has no "
+                f"corresponding DecisionRecord at all -- this policy decision "
+                f"was never acted on, or was fabricated."
+            )
+
+    return failures
+
+
 def verify_causal_history(
     registration_log_path: str,
     decision_log_path: str,
@@ -422,6 +481,9 @@ def verify_causal_history(
     if policy_decision_records is not None:
         failures.extend(
             _check_policy_decision_provenance(decision_records, policy_decision_records)
+        )
+        failures.extend(
+            _check_policy_decision_orphans(decision_records, policy_decision_records)
         )
 
     return CausalHistoryReport(

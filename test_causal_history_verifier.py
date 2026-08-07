@@ -599,3 +599,70 @@ def test_swapped_valid_policy_decision_records_are_caught(three_log_paths):
     # doesn't match what's now sitting at policy sequence_id=10, and
     # likewise for 11.
     assert len(provenance_failures) == 2
+
+
+# ---------------------------------------------------------------------
+# 8. Check 5 -- policy decision orphan detection (PG-001 adversarial finding)
+# ---------------------------------------------------------------------
+
+def test_orphan_policy_decision_record_with_no_matching_decision_is_caught(three_log_paths):
+    """
+    The PG-001 adversarial finding, closed. A PolicyDecisionRecord is
+    fabricated for a module that was NEVER registered, at a
+    (sequence_id, generation_id) where no real DecisionRecord was ever
+    made -- nothing appended to the registration, decision, or audit
+    logs at all. Before Check 5 existed, this passed
+    verify_causal_history() cleanly: Checks 1-3 never inspect
+    policy_decision_records, and Check 4 only ever walks FROM
+    decision_records (of which there are none here), so it had nothing
+    to compare against either. This is the "provenance gap" attack
+    class named during adversarial review of PROVENANCE_GRAPH_MODEL.md:
+    a valid-looking artifact introduced but never connected into the
+    verification graph.
+    """
+    open(three_log_paths["registration"], "w", encoding="utf-8").close()
+    open(three_log_paths["decision"], "w", encoding="utf-8").close()
+    open(three_log_paths["audit"], "w", encoding="utf-8").close()
+
+    orphan_policy_decision = _make_policy_decision("never_registered_module")
+    orphan_policy_record = PolicyDecisionRecord(
+        sequence_id=99, generation_id=_GEN_ID, policy_decision=orphan_policy_decision,
+    )
+    append_policy_decision_record(three_log_paths["policy_decision"], orphan_policy_record)
+
+    report = verify_causal_history(
+        three_log_paths["registration"],
+        three_log_paths["decision"],
+        three_log_paths["audit"],
+        policy_decision_log_path=three_log_paths["policy_decision"],
+    )
+
+    assert report.passed is False
+    assert any("Policy decision orphan" in f for f in report.failures)
+    assert any("has no corresponding DecisionRecord at all" in f for f in report.failures)
+
+
+def test_orphan_check_does_not_false_positive_on_correlated_records(three_log_paths):
+    """
+    Sanity check: Check 5 must not flag a genuinely correlated
+    PolicyDecisionRecord as an orphan just because it exists. Reuses
+    the same correlated-pair helper the Check 4 clean-path test
+    already depends on.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("phoenix_a_core_v1")
+    )
+    decision, policy_record = _make_correlated_decision_and_policy_record(1, "phoenix_a_core_v1")
+    append_decision_record(three_log_paths["decision"], decision)
+    append_policy_decision_record(three_log_paths["policy_decision"], policy_record)
+    append_audit_record(three_log_paths["audit"], _make_audit(1, "phoenix_a_core_v1"))
+
+    report = verify_causal_history(
+        three_log_paths["registration"],
+        three_log_paths["decision"],
+        three_log_paths["audit"],
+        policy_decision_log_path=three_log_paths["policy_decision"],
+    )
+
+    assert report.passed is True
+    assert not any("orphan" in f.lower() for f in report.failures)
