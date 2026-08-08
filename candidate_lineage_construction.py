@@ -34,6 +34,39 @@ CandidateLineageEdge carries this caveat explicitly, via
 continuity_caveat, so it travels with the artifact rather than living
 only in this docstring.
 
+ORDERING IS NOT INDEPENDENTLY ESTABLISHED EITHER (2026-08-08, MB-004's
+seventh attack, Semantic Inflation): the identity-continuity caveat
+above is thorough -- but this module's documentation previously said
+nothing at all about a structurally identical, equally unprovable
+claim: that from_generation_id chronologically PRECEDED to_generation_id
+in real time. An edge's direction is constructed entirely from
+Phase 1's *input* list order, which this function trusts as given and
+never independently verifies -- see REPLAY_GENERATION_MODEL.md's
+Corollary to Theorem 2 for the full argument. The persisted evidence
+does NOT independently establish chronological ordering between
+generations: no field in the current schema varies with real time in
+a caller-independent way (frame_timestamp_ns is caller-supplied at
+frame creation with zero validation -- hash-chained tamper-evident,
+never authenticated as accurate), so nothing distinguishes a genuinely
+ordered [A, B] from a hand-reversed [B, A] built from the same two
+segments. Preserving the supplied order is NOT the same as proving
+that order: constructing an edge A -> B asserts "given the supplied
+Phase 1 ordering, this is the candidate relationship," never "A has
+been established to have occurred before B." A caller consuming only
+edge.from_generation_id/edge.to_generation_id, without this docstring
+or continuity_caveat, could otherwise reasonably read a constructed
+direction as a proven fact about real-world chronology. It is not,
+and cannot be made one under the current persisted evidence model --
+the same formal limit Theorem 2 already places on identity continuity
+applies here to ordering, for the same underlying reason (see
+REPLAY_GENERATION_MODEL.md's Generation Identity Independence
+Principle). This is documented here, not enforced in code: no
+defensive raise exists or should exist for a caller supplying
+correctly-labeled segments in an order this function cannot verify --
+see test_reversed_generation_segments_produce_reverse_candidate_edge
+for why rejecting some orderings without knowing the correct one would
+be dishonest, not protective.
+
 FAULT-RECORD CORROBORATION, not proof: an edge may note whether the
 segment immediately before it ends in a record with success=False --
 consistent with (but not proof of) an administrative reset. Per
