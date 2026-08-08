@@ -367,3 +367,37 @@ def test_reversed_generation_segments_produce_reverse_candidate_edge():
     assert len(graph.edges) == 1
     assert graph.edges[0].from_generation_id == _GEN_B
     assert graph.edges[0].to_generation_id == _GEN_A
+
+def test_nonadjacent_duplicate_generation_id_raises_value_error():
+    """
+    MB-004's Duplication finding (2026-08-08): construct_candidate_lineage()'s
+    original same-generation-id guard only compared ADJACENT pairs
+    (segments[i] vs segments[i+1]) -- a NON-adjacent duplicate, the
+    same generation_id reappearing after a genuinely different
+    generation's segment sits between the two occurrences, passed
+    every adjacent check while still representing an invalid
+    single-lineage history. generation_segmentation.segment_by_generation()
+    (Phase 1) enforces a STRONGER invariant -- UnsegmentableHistoryError
+    fires on ANY reappearance, not just an adjacent one -- so this
+    input could never come from a real Phase 1 call; built here by
+    hand-assembling three independently-produced, individually genuine
+    segments, bypassing Phase 1 entirely.
+
+    Before the fix: silently produced two edges (A -> B and B -> A)
+    and a verified_segments tuple containing generation A twice -- a
+    candidate graph asserting the kernel returned to a generation it
+    had already left.
+    """
+    gen_a_log_1 = _run_real_generation(_GEN_A, frame_count=2)
+    gen_b_log = _run_real_generation(_GEN_B, frame_count=2)
+    gen_a_log_2 = _run_real_generation(_GEN_A, frame_count=2)
+
+    segments_a1 = segment_by_generation(list(gen_a_log_1))
+    segments_b = segment_by_generation(list(gen_b_log))
+    segments_a2 = segment_by_generation(list(gen_a_log_2))
+
+    segments = [segments_a1[0], segments_b[0], segments_a2[0]]
+    results = verify_segments(segments)
+
+    with pytest.raises(ValueError, match="same generation_id"):
+        construct_candidate_lineage(segments, results)

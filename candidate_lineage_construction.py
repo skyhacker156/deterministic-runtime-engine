@@ -146,23 +146,38 @@ def construct_candidate_lineage(
     generation_segment_verification.verify_segments(segments) already
     guarantees when called as verify_segments(segments).
 
+    EVERY generation_id MUST BE GLOBALLY UNIQUE ACROSS THE LIST, NOT
+    JUST ADJACENT (2026-08-08, MB-004's Duplication finding):
+    generation_segmentation.py's segment_by_generation() enforces a
+    STRONGER invariant than this function originally checked --
+    UnsegmentableHistoryError fires the instant any generation_id
+    reappears anywhere after a later, different one was witnessed, not
+    only when it reappears immediately next to itself. This function's
+    original guard only compared segments[i] against segments[i+1],
+    checking adjacency, not global uniqueness. A caller bypassing Phase
+    1 by hand-assembling segments from several individually-genuine,
+    independently-verified real segments -- segments = [A, B, A], each
+    one honestly produced by its own real segment_by_generation() call
+    -- would pass the adjacent-only check at every position (A != B,
+    B != A) while generation A appears twice, non-adjacently. Before
+    this fix, this silently produced two edges (A -> B and B -> A) and
+    a verified_segments tuple containing generation A twice -- a
+    candidate graph asserting the kernel returned to a generation it
+    had already left, exactly the "data corruption or multiple
+    interleaved engine instances" shape Phase 1's own
+    UnsegmentableHistoryError exists to rule out. The fix subsumes the
+    original adjacent-only check rather than sitting alongside it: a
+    single global-uniqueness pass catches both the old adjacent case
+    and this new non-adjacent case with one mechanism.
+
     ADJACENT SEGMENTS MUST REPRESENT DIFFERENT GENERATIONS (2026-08-08,
     found via adversarial review of MB-004, the highest-information
-    untested cell in the campaign matrix): generation_segmentation.py's
-    segment_by_generation() structurally guarantees this for real Phase
-    1 output -- it is what makes two list entries separate segments in
-    the first place. But this function itself never verified that
-    precondition, even though it already defends the comparably
-    load-bearing length-match precondition below with a raise. Left
-    undefended, a caller bypassing Phase 1 with a malformed segments
-    list (two adjacent entries sharing one generation_id) would get a
-    CandidateLineageEdge with from_generation_id == to_generation_id --
-    not a malformed length, a semantically meaningless "boundary" that
-    doesn't represent a transition at all, silently accepted rather
-    than caught the same way the length mismatch already is.
+    untested cell in the campaign matrix): now enforced as a special
+    case of the global-uniqueness check above, not a separate
+    mechanism.
 
     EVERY verification_results[i] MUST ACTUALLY DESCRIBE segments[i]
-    (NEW, 2026-08-08 -- MB-004's Omission finding): segments and
+    (2026-08-08 -- MB-004's Omission finding): segments and
     verification_results are two SEPARATE parameters. Nothing
     previously verified that verification_results[i] was genuinely
     computed FROM segments[i] -- only verification_results[i]'s own
@@ -205,6 +220,23 @@ def construct_candidate_lineage(
                 f"segment data its fault-evidence is drawn from."
             )
 
+    seen_generation_ids = set()
+    for i, result in enumerate(verification_results):
+        if result.generation_id in seen_generation_ids:
+            raise ValueError(
+                f"generation_id {result.generation_id.hex()} appears more than "
+                f"once across segments (same generation_id seen earlier, now "
+                f"found again at index {i}) -- every generation_id must be "
+                f"globally unique in a real, single-lineage history. "
+                f"generation_segmentation.segment_by_generation() already "
+                f"enforces this for real Phase 1 output (UnsegmentableHistoryError "
+                f"fires on ANY reappearance, not just an adjacent one); this input "
+                f"could not have come from a real segment_by_generation() call. A "
+                f"repeated generation_id -- adjacent or not -- would not represent "
+                f"a valid single-lineage history."
+            )
+        seen_generation_ids.add(result.generation_id)
+
     verified_results = [r for r in verification_results if r.fully_verified]
     excluded_results = [r for r in verification_results if not r.fully_verified]
 
@@ -212,18 +244,6 @@ def construct_candidate_lineage(
     for i in range(len(segments) - 1):
         current_segment, current_result = segments[i], verification_results[i]
         next_result = verification_results[i + 1]
-
-        if current_result.generation_id == next_result.generation_id:
-            raise ValueError(
-                f"segments[{i}] and segments[{i + 1}] share the same "
-                f"generation_id ({current_result.generation_id.hex()}) -- "
-                f"adjacent list entries must represent DIFFERENT generations, "
-                f"exactly what generation_segmentation.segment_by_generation() "
-                f"already guarantees for real Phase 1 output. This input could "
-                f"not have come from a real segment_by_generation() call; an "
-                f"edge between two same-generation segments would not "
-                f"represent a generation boundary at all."
-            )
 
         if current_result.fully_verified and next_result.fully_verified:
             edges.append(CandidateLineageEdge(

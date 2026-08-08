@@ -87,6 +87,55 @@ Retroactively checked against every finding below: Check 1 and Check 5 both term
 
 **A "clean pass" needs its own caveat, learned the hard way:** "documentation confirmation" means the attacks *actually run* found nothing — it does not mean every relevant attack was tried. `CH-002` was marked clean after one attack (cross-module wall-clock interleaving) without Boundary Crossing ever being tried against it directly, despite `sequence_id` being exactly the kind of claim that family exists to test. The real gap was found by accident, through a different check's test. Going forward: before recording a clean verdict, check whether the claim's own subject matter points at an attack family that hasn't actually been run yet, not just whichever one was tried first.
 
+## Attack result and disposition — two distinct axes (formalized 2026-08-08)
+
+Retroactive restructuring, not a new methodology: every finding below already carries this information, just folded into a single shorthand (`found→fixed`, `found→documented`, `clean`, `found→logged`) that conflates two genuinely different questions. Separated explicitly:
+
+**ATTACK RESULT** — what kind of thing the attack actually discovered:
+
+```
+ATTACK RESULT
+├── survived
+└── finding
+     ├── implementation defect
+     ├── schema limitation
+     ├── epistemic limitation
+     ├── claim-boundary / semantic-inflation issue
+     └── insufficient evidence
+```
+
+**DISPOSITION** — what was decided to do about it:
+
+```
+DISPOSITION
+├── fixed + regression
+├── documented limitation
+├── claim narrowed
+├── logged / pending evidence
+└── schema change deferred
+```
+
+**Precise definitions, to prevent the two `schema`-adjacent categories from re-blurring into each other:**
+
+- **`schema limitation`** (attack result): the current persisted evidence model lacks the information needed to establish the claim. This does **not** imply the schema itself is defective or that it should change — `HC-001`'s optional `manifest_hash` is an intentional design choice that happens to produce this result; `GAP-005`'s missing lifecycle record type is a potentially useful future extension that also produces this result. Same attack-result category, two different reasons the evidence is missing.
+- **`epistemic limitation`** (attack result): the current persisted evidence model cannot establish the claim, and — unlike `schema limitation` — no verifier-only change and no schema addition within the current architecture's terms can ever make it establishable, because the thing being inferred is, by construction, statistically independent of everything persisted (`MB-003`'s Theorem 2, `MB-004`/Asymmetry's Corollary). This is a stronger, formally-derived claim, not a synonym for "hasn't been built yet."
+- **`documented limitation`** (disposition): applies to *both* `schema limitation` and `epistemic limitation` findings alike — the disposition doesn't need to re-encode which flavor it is, because the attack result already says so. A reader wanting to know *why* something is a documented limitation should look at its attack-result tag, not expect the disposition bucket to carry that distinction.
+- **`schema change deferred`** (disposition): reserved for the specific case where a concrete, named schema addition (a new record type, a new persisted field) would resolve the finding, that addition is buildable in principle, and a decision has been made not to build it *yet*, pending real demonstrated need — distinct from `documented limitation`, which covers findings where no schema change was even proposed as a live option, or a general design tradeoff.
+
+**Worked mappings, given as calibration examples:**
+- `MB-003` → `finding: epistemic limitation` / `disposition: documented limitation`
+- `MB-004`/Asymmetry (Twelfth finding) → `finding: epistemic limitation` / `disposition: documented limitation`
+- `HC-001` (`manifest_hash` optionality) → `finding: schema limitation` / `disposition: documented limitation`
+- `GAP-005` → `finding: schema limitation` / `disposition: schema change deferred`
+- Check 1, Check 5, Check 6, Check 7, Check 2's fix, `MB-004`'s Substitution/Omission/Boundary-Crossing fixes → `finding: implementation defect` / `disposition: fixed + regression`
+- `CH-004`/`CH-006`'s Duplication, `CH-001`'s Duplication → `finding: insufficient evidence` / `disposition: logged / pending evidence`
+- `CH-001`'s Semantic Inflation, `MB-003`'s naming risk, `HC-001`'s compound dashboard-badge risk → `finding: claim-boundary / semantic-inflation issue` / `disposition: documented limitation`
+- `MB-002`'s five sub-attacks, `MB-004`'s Orphan, `CH-001`'s Substitution → `attack result: survived` / `disposition: n/a` (nothing to dispose of when nothing was found)
+
+**Scope of this restructuring:** classification only. No finding's prose, conclusion, or existing shorthand tag (`found→fixed` etc., still used in the campaign matrix below) is reinterpreted or changed by this section — each finding below now additionally carries its two-axis tag alongside its original disposition sentence, exactly as originally written.
+
+
+
 ## The meta-principle this methodology already proved about itself
 
 **Claims, models, and implementations are all attack surfaces — not just implementations.** Check 5's finding wasn't only an implementation gap; `PROVENANCE_GRAPH_MODEL.md` itself named a composition mechanism ("composing through `DecisionRecord`") that didn't actually exist yet. The model was wrong, not just incomplete. That means this methodology has to periodically attack its *own* documents — `PROVENANCE_GRAPH_MODEL.md`, `MODE_B_CLAIMS_REGISTRY.md`, `VERIFICATION_COVERAGE_MATRIX.md`, and this file — the same way it attacks code, on the theory that a formal model describing a graph an adversary is meant to reason against is itself a claim that can be false.
@@ -101,11 +150,11 @@ Five claims, as raised. Verdicts vary deliberately — this is meant to show the
 
 ### HC-001 — real finding, not previously stated this precisely
 **Attack:** can I change something that matters operationally but isn't included in `attempt_hash`?
-`ModuleRegistrationAttemptRecord` persists `manifest_hash` — a *reference* to the declared manifest, not the manifest's content, and certainly not the actual loaded module code. Two structurally different module implementations that happen to declare identical capabilities and `runtime_api` version would produce the same `manifest_hash`, and `HC-001`'s tamper-evidence says nothing about which one actually ran. **This is the same "internal consistency, not external authenticity" boundary `REPLAY_GENERATION_MODEL.md`'s Theorem 1 already states for hash chains generally — but it had never been stated for `HC-001` specifically.** Not a bug; a boundary worth adding to `HC-001`'s row in `VERIFICATION_COVERAGE_MATRIX.md`. Disposition: formally document limitation.
+`ModuleRegistrationAttemptRecord` persists `manifest_hash` — a *reference* to the declared manifest, not the manifest's content, and certainly not the actual loaded module code. Two structurally different module implementations that happen to declare identical capabilities and `runtime_api` version would produce the same `manifest_hash`, and `HC-001`'s tamper-evidence says nothing about which one actually ran. **This is the same "internal consistency, not external authenticity" boundary `REPLAY_GENERATION_MODEL.md`'s Theorem 1 already states for hash chains generally — but it had never been stated for `HC-001` specifically.** Not a bug; a boundary worth adding to `HC-001`'s row in `VERIFICATION_COVERAGE_MATRIX.md`. Disposition: formally document limitation. **[finding: schema limitation / disposition: documented limitation]**
 
 ### HC-003 — RESOLVED 2026-08-07 against real source, not guessed
 **Attack:** are there semantically important fields excluded from `audit_hash`'s coverage?
-Originally flagged, not guessed at — resolved once `execution_audit_contract.py` was actually read. **Result: no field is excluded.** `_compute_audit_hash()` hashes all 9 fields, confirmed directly (`generation_id` and `frame_timestamp_ns` both included, not assumed). Deterministic metrics specifically: `output_hash = result.module_hash`, and `ExecutionResult.module_hash` (`execution_module_contract.py`) already bakes in the filtered, sorted, deterministic subset of `metrics` before `ExecutionAuditRecord` ever sees it — covered transitively, via the same opaque-hash-reference pattern every field in this record uses, not by `ExecutionAuditRecord` inspecting metrics directly. The one real, now-precisely-grounded boundary: `__post_init__` validates `output_hash` is a well-formed 32-byte digest, never that it's the *correct* `module_hash` for a genuine `ExecutionResult` — internal consistency, not external authenticity, same as everywhere else in this hash chain. Disposition: documentation confirmation, refined with the verified mechanism (`VERIFICATION_COVERAGE_MATRIX.md` updated).
+Originally flagged, not guessed at — resolved once `execution_audit_contract.py` was actually read. **Result: no field is excluded.** `_compute_audit_hash()` hashes all 9 fields, confirmed directly (`generation_id` and `frame_timestamp_ns` both included, not assumed). Deterministic metrics specifically: `output_hash = result.module_hash`, and `ExecutionResult.module_hash` (`execution_module_contract.py`) already bakes in the filtered, sorted, deterministic subset of `metrics` before `ExecutionAuditRecord` ever sees it — covered transitively, via the same opaque-hash-reference pattern every field in this record uses, not by `ExecutionAuditRecord` inspecting metrics directly. The one real, now-precisely-grounded boundary: `__post_init__` validates `output_hash` is a well-formed 32-byte digest, never that it's the *correct* `module_hash` for a genuine `ExecutionResult` — internal consistency, not external authenticity, same as everywhere else in this hash chain. Disposition: documentation confirmation, refined with the verified mechanism (`VERIFICATION_COVERAGE_MATRIX.md` updated). **[attack result: survived (existing boundary refined, not newly discovered) / disposition: documented limitation]**
 
 ### CH-002 — SUPERSEDED 2026-08-07: the "clean pass" verdict was premature
 **Original attack:** can I construct a history that is globally nonsensical while remaining locally ordered? Yes — two engines' records interleaved in one log file, each internally sequence-ordered, with `frame_timestamp_ns` values that contradict the interleaving. Check 2 doesn't catch this, but `CH-002`'s Boundary column already stated exactly that limitation, so this was recorded as documentation confirmation.
@@ -114,7 +163,7 @@ Originally flagged, not guessed at — resolved once `execution_audit_contract.p
 
 **Real finding, fixed:** `_check_sequence_ordering()` tracked `last_seen` keyed purely by `module_id`, with zero `generation_id` awareness — the identical class of gap Check 1 had before its own fix, but more severe in consequence: Check 1's gap needed a coincidental cross-generation collision to misfire; this one fired **unconditionally on every administrative reset**, since `sequence_id` legitimately resets to 0 each time. Any real multi-generation history for the same module — not an adversarial construction, ordinary healthy operation — would have been guaranteed a false "out of causal order" violation. Fixed by scoping the join key to `(module_id, generation_id)`, mirroring Check 1's and Check 6's shape. Two new regression tests: the exact false-positive scenario (`test_sequence_numbering_resetting_across_a_real_generation_boundary_is_not_flagged`) and a sanity check that genuine within-generation violations are still caught.
 
-Disposition: fix + regression test. Reclassifies from "documentation confirmation" to "found→fixed," Boundary Crossing family.
+Disposition: fix + regression test. Reclassifies from "documentation confirmation" to "found→fixed," Boundary Crossing family. **[finding: implementation defect / disposition: fixed + regression]**
 
 ### MB-002 — clean pass across five sub-attacks
 **Attack:** missing records, duplicate sequence_ids, empty segments, boundary records, malformed transitions — does segmentation accept any impossible pattern?
@@ -124,11 +173,11 @@ Disposition: fix + regression test. Reclassifies from "documentation confirmatio
 - *Boundary records (empty history, single-record history):* already tested directly (`test_empty_history_returns_empty_list`, `test_single_generation_returns_one_segment`).
 - *Malformed `generation_id` (wrong length/type):* caught earlier, at `ExecutionAuditRecord`'s own construction validation — correctly out of Phase 1's scope.
 
-No new findings. This is the "found nothing, and that's useful evidence" case the methodology predicted might happen — five sub-attacks, five confirmations that the layering between Phase 1 and Phase 2 is where it should be. Disposition: documentation confirmation (all five).
+No new findings. This is the "found nothing, and that's useful evidence" case the methodology predicted might happen — five sub-attacks, five confirmations that the layering between Phase 1 and Phase 2 is where it should be. Disposition: documentation confirmation (all five). **[attack result: survived (×5) / disposition: n/a]**
 
 ### MB-003 — real epistemic risk, semantic inflation family
 **Attack:** can any implementation accidentally turn an unknowable relationship into a claimed one?
-Not in current code — `CandidateLineageEdge.explanation()`'s wording is disciplined ("PLAUSIBLE, not proven"), and no aggregation or confidence-scoring exists to inflate. **But there is a real naming risk for future code built on top of this:** `SegmentVerificationResult.fully_verified` proves only within-segment continuity (Theorem 1). Nothing in that property's name warns a future integration — a dashboard, a report generator, an alerting layer — against reading "both adjacent segments are `fully_verified`" as implying the *boundary between them* is also verified, when `MB-003` explicitly says it structurally cannot be. This is the most realistic risk in the whole Mode B design: not that current code overclaims, but that a future caller could misread two true, narrow statements as implying a third, false, broader one. Preventive note added to `MODE_B_CLAIMS_REGISTRY.md`'s `MB-003` entry. Disposition: formally document limitation (done).
+Not in current code — `CandidateLineageEdge.explanation()`'s wording is disciplined ("PLAUSIBLE, not proven"), and no aggregation or confidence-scoring exists to inflate. **But there is a real naming risk for future code built on top of this:** `SegmentVerificationResult.fully_verified` proves only within-segment continuity (Theorem 1). Nothing in that property's name warns a future integration — a dashboard, a report generator, an alerting layer — against reading "both adjacent segments are `fully_verified`" as implying the *boundary between them* is also verified, when `MB-003` explicitly says it structurally cannot be. This is the most realistic risk in the whole Mode B design: not that current code overclaims, but that a future caller could misread two true, narrow statements as implying a third, false, broader one. Preventive note added to `MODE_B_CLAIMS_REGISTRY.md`'s `MB-003` entry. Disposition: formally document limitation (done). **[finding: claim-boundary / semantic-inflation issue / disposition: documented limitation]** — note this specific finding is about the *naming risk*, distinct from `MB-003`'s own underlying `epistemic limitation` (Theorem 2 itself), which is `documented limitation` in its own right.
 
 ---
 
@@ -153,7 +202,7 @@ Tracing this to its actual root, not stopping at "no time check": `ModuleRegistr
 - Attack family: **Omission, schema-level sub-type.**
 - No immediate schema change — the campaign's job is to map where the actual boundaries are, not to trigger a redesign every time one is found. Building `GAP-005` is a real, separate, scoped decision for later.
 
-Disposition: formally document limitation (`GAP-005` added, both documents updated with the corrected classification), not fixed.
+Disposition: formally document limitation (`GAP-005` added, both documents updated with the corrected classification), not fixed. **[finding: schema limitation / disposition: schema change deferred]** — the specific case a fifth disposition bucket exists for: a concrete, named schema addition (a lifecycle-transition record type) would resolve this, buildable in principle, deferred pending real demonstrated need rather than left as an undifferentiated "documented limitation."
 
 ---
 
@@ -169,7 +218,7 @@ Traced directly against `deterministic_execution_engine.py`'s real `process_fram
 
 **Fix:** Check 6 (`_check_decision_execution_completeness`) added to `causal_history_verifier.py`, always runs (not optional, unlike Checks 4/5 — it only needs the two always-available logs). Four new tests: the core mid-stream-gap attack (`test_mid_stream_decision_with_no_audit_is_caught`), the trailing-exemption clean case (`test_trailing_decision_with_no_audit_is_not_flagged`), the generation-scoping proof (`test_trailing_exemption_is_scoped_per_generation_not_globally` — the specific test designed to catch the bug this fix's own design was built to avoid), and a trivial single-decision sanity check.
 
-Disposition: fix + regression test (matching Check 1 and Check 5's precedent — a real finding gets the same discipline as any bug, not deferred as future work because it came from a review pass).
+Disposition: fix + regression test (matching Check 1 and Check 5's precedent — a real finding gets the same discipline as any bug, not deferred as future work because it came from a review pass). **[finding: implementation defect / disposition: fixed + regression]**
 
 ---
 
@@ -187,7 +236,7 @@ Verified directly against `module_registration_audit.py` (2026-08-07, not inferr
 
 **Compound semantic-inflation risk, worth naming alongside `GAP-005`:** a future dashboard or report showing "module X: registration verified" could easily be read as "module X's identity is cryptographically confirmed" — when in fact (a) the registration may carry no manifest binding at all, per this finding, and (b) even a well-formed registration says nothing about whether the module was later retired or faulted, per `GAP-005`. Two narrow, individually-accurate claims compounding into a false broad one is exactly the shape `MB-003`'s semantic-inflation warning was written to prevent — the same discipline applies here.
 
-Disposition: formally document limitation (`VERIFICATION_COVERAGE_MATRIX.md`'s `HC-001` row updated with the precise mechanism; the original matrix row had never actually been updated with the first `HC-001` finding either, corrected in the same pass).
+Disposition: formally document limitation (`VERIFICATION_COVERAGE_MATRIX.md`'s `HC-001` row updated with the precise mechanism; the original matrix row had never actually been updated with the first `HC-001` finding either, corrected in the same pass). **[finding: schema limitation / disposition: documented limitation]** — an intentional design choice (source docstring confirms deliberate), not a buildable-but-unbuilt gap, so `schema change deferred` does not apply here the way it does for `GAP-005`.
 
 ---
 
@@ -199,7 +248,7 @@ Verified directly against `candidate_lineage_construction.py`'s real source (202
 
 **Concrete construction:** two genuinely valid, independently-verified segments (both real, correctly hash-chained, both `fully_verified=True`) that happen to share one `generation_id`, assembled as adjacent list entries — bypassing `segment_by_generation()` entirely. Before the fix, this silently produced a `CandidateLineageEdge` with `from_generation_id == to_generation_id`: not a data-integrity failure (nothing here is tampered with), but a "boundary" that doesn't represent any real generation transition at all, presented via `.explanation()` exactly as if it were a genuine candidate transition.
 
-**Disposition, following the `PG-001` precedent directly:** this is adversarial-fabrication-only — Phase 1 itself can never produce this input in the normal pipeline. That was true of the original `PG-001` orphan finding too, and this project's standing answer is the same one given there: an adversarial-only finding still gets fixed with the same discipline as an operational bug, not merely documented, because "not currently exploitable through the normal pipeline" and "not exploitable at all" are different claims, and this function is a public API a caller could call directly. Fixed with a `raise`, matching the existing length-check's own pattern exactly. New regression test: `test_adjacent_segments_sharing_a_generation_id_raise_value_error`, built from two real engine runs (not fabricated data), confirming the malformed pair is rejected outright.
+**Disposition, following the `PG-001` precedent directly:** this is adversarial-fabrication-only — Phase 1 itself can never produce this input in the normal pipeline. That was true of the original `PG-001` orphan finding too, and this project's standing answer is the same one given there: an adversarial-only finding still gets fixed with the same discipline as an operational bug, not merely documented, because "not currently exploitable through the normal pipeline" and "not exploitable at all" are different claims, and this function is a public API a caller could call directly. Fixed with a `raise`, matching the existing length-check's own pattern exactly. New regression test: `test_adjacent_segments_sharing_a_generation_id_raise_value_error`, built from two real engine runs (not fabricated data), confirming the malformed pair is rejected outright. **[finding: implementation defect / disposition: fixed + regression]**
 
 ---
 
@@ -213,7 +262,7 @@ Traced against `_check_decision_ancestry()`'s real source: the match condition i
 
 **Fix:** Check 7 (`_check_no_contradictory_decisions`) added, always runs (needs only `decision_records`, no optionality). Validates `decision_records`' own internal consistency directly — independent of whether any audit even references the contradictory key, catching the fabrication at its source rather than only its downstream effect on Check 1. Two regression tests: the core attack (contradictory pair, no audits needed at all, since this is purely a decision-log integrity concern) and a false-positive check confirming a denial and a later allowance at *different* sequence_ids — ordinary, legitimate history — is not flagged.
 
-Disposition: fix + regression test, same discipline as every other real finding this campaign has produced.
+Disposition: fix + regression test, same discipline as every other real finding this campaign has produced. **[finding: implementation defect / disposition: fixed + regression]**
 
 ---
 
@@ -233,7 +282,7 @@ There is nothing to substitute. Substitution requires shared content that could 
 
 Yes. Check 1's loop iterates `audit_records` independently, checking each one's key membership in `allowed_keys` with no tracking across iterations — two audits sharing a key would each pass individually. **Check 6 doesn't catch this either**: `_check_decision_execution_completeness()`'s `audit_keys` is also a *set* comprehension, so it only ever asks "does at least one audit exist at this key," identical `>= 1` semantics to Check 1. A duplicated, byte-identical `ExecutionAuditRecord` is invisible to both checks that touch this relationship.
 
-Investigated the same way as `CH-004`/`CH-006`'s Duplication finding, because it's the same append path: no retry logic exists anywhere in the code actually available (`execution_audit_log.py`, `deterministic_execution_engine.py` — confirmed earlier this session, the production persistence call site itself isn't in this sandbox). Same honest limit applies: cannot rule out an unseen external caller retrying, but no legitimate retry mechanism was found. Logged, not built — same disposition as its sibling finding, for the same reason.
+Investigated the same way as `CH-004`/`CH-006`'s Duplication finding, because it's the same append path: no retry logic exists anywhere in the code actually available (`execution_audit_log.py`, `deterministic_execution_engine.py` — confirmed earlier this session, the production persistence call site itself isn't in this sandbox). Same honest limit applies: cannot rule out an unseen external caller retrying, but no legitimate retry mechanism was found. Logged, not built — same disposition as its sibling finding, for the same reason. **[finding: insufficient evidence / disposition: logged / pending evidence]**
 
 ### Semantic inflation — real, and it's the direct consequence of the Substitution finding's cause
 
@@ -243,7 +292,7 @@ Yes, precisely because of the structural fact above: `CH-001` proves a `Decision
 
 ### Disposition summary
 
-Substitution: documentation confirmation (structural, not incidental). Duplication: logged, not built (same reasoning as `CH-004`/`CH-006`'s sibling finding). Semantic inflation: formally document limitation. No code changes this turn — `CH-001` is now the most thoroughly attacked claim in the campaign, 7 of 7 families attempted, four real fixes, one structural clean pass, two documented limitations.
+Substitution: documentation confirmation (structural, not incidental). **[attack result: survived (structural clean pass) / disposition: n/a]** Duplication: logged, not built (same reasoning as `CH-004`/`CH-006`'s sibling finding). **[finding: insufficient evidence / disposition: logged / pending evidence]** Semantic inflation: formally document limitation. **[finding: claim-boundary / semantic-inflation issue / disposition: documented limitation]** No code changes this turn — `CH-001` is now the most thoroughly attacked claim in the campaign, 7 of 7 families attempted, four real fixes, one structural clean pass, two documented limitations.
 
 ---
 
@@ -257,7 +306,7 @@ First hypothesis, checked against real source and ruled out before building anyt
 
 **Fix:** an upfront validation loop, checked for every index before any edge construction begins — `segments[i].generation_id != verification_results[i].generation_id` raises immediately, matching the existing length-check's and same-generation-check's own pattern. New regression test built entirely from real objects (two real generations, each independently run through `verify_segments()`), swapped in the call — no hand-constructed data anywhere, the violation is purely in the pairing.
 
-Disposition: fix + regression, same `PG-001` precedent as the first MB-004 finding — adversarial-fabrication-only (Phase 1's own pipeline always pairs correctly by construction), still fixed rather than merely documented, since this is a public API a caller could invoke directly.
+Disposition: fix + regression, same `PG-001` precedent as the first MB-004 finding — adversarial-fabrication-only (Phase 1's own pipeline always pairs correctly by construction), still fixed rather than merely documented, since this is a public API a caller could invoke directly. **[finding: implementation defect / disposition: fixed + regression]**
 
 ---
 
@@ -273,7 +322,7 @@ Traced through all three layers of the pipeline before asserting anything. `Gene
 
 **Fix:** `verify_segments()` now checks `segment.generation_id != segment.records[0].generation_id` (when `records` is non-empty) before calling the verifier, raising immediately — matching the same pattern as every other precondition guard added this campaign. New regression test built from one real engine run (genuinely, consistently generation B) deliberately mislabeled as A — not fabricated data, just a false label on real content.
 
-Disposition: fix + regression, same `PG-001` precedent. Campaign scope respected: `VP-001` not touched this turn, per instruction.
+Disposition: fix + regression, same `PG-001` precedent. Campaign scope respected: `VP-001` not touched this turn, per instruction. **[finding: implementation defect / disposition: fixed + regression]**
 
 ---
 
@@ -295,7 +344,7 @@ Traced rather than assumed clean. Three checks, in order:
 
 **Why this is a meaningful clean pass, not a shrug:** three independent mechanisms close this off, and only one of them (the pre-existing mixed-generation detection) predates this session's work — the other two (same-generation-adjacency, segment/result cross-check) were built for *different* attack families (Substitution and Omission respectively) and happen to jointly close Orphan as a side effect. Worth recording precisely, matching the `CH-002` lesson: a clean verdict is only as good as what was actually checked against it, and this one traces to three named, verified mechanisms rather than an absence of trying.
 
-Disposition: documentation confirmation. No code changes this turn.
+Disposition: documentation confirmation. No code changes this turn. **[attack result: survived (three mechanisms traced, not asserted) / disposition: n/a]**
 
 ---
 
@@ -303,7 +352,7 @@ Disposition: documentation confirmation. No code changes this turn.
 
 **Attack (Asymmetry family, per the structural hint surfaced during the Orphan pass):** `segments` and `verification_results` are consumed as two correlated lists throughout Phase 3. Is there a directional relationship this function or its neighbors rely on where only one direction is actually checked?
 
-**Candidate 1, traced and ruled out:** the edge loop reads `segments[i]` (for `_last_record_is_fault()`) and `verification_results[i+1]` (for the "next" side of the edge) but never `segments[i+1]` directly — syntactically asymmetric on its face. Traced against the existing upfront per-index validation loop (built for the Ninth finding, Omission): it already establishes `segments[j].generation_id == verification_results[j].generation_id` for *every* index `j`, including `i+1`, before the edge loop ever runs. By the time the edge loop reaches index `i`, the apparently-missing `segments[i+1]` relationship has already been established indirectly. No exploitable degree of freedom remains — worth recording as a traced, ruled-out asymmetry rather than silently passed over, matching the `CH-002` lesson: syntactic asymmetry is not automatically exploitable asymmetry.
+**Candidate 1, traced and ruled out:** the edge loop reads `segments[i]` (for `_last_record_is_fault()`) and `verification_results[i+1]` (for the "next" side of the edge) but never `segments[i+1]` directly — syntactically asymmetric on its face. Traced against the existing upfront per-index validation loop (built for the Ninth finding, Omission): it already establishes `segments[j].generation_id == verification_results[j].generation_id` for *every* index `j`, including `i+1`, before the edge loop ever runs. By the time the edge loop reaches index `i`, the apparently-missing `segments[i+1]` relationship has already been established indirectly. No exploitable degree of freedom remains — worth recording as a traced, ruled-out asymmetry rather than silently passed over, matching the `CH-002` lesson: syntactic asymmetry is not automatically exploitable asymmetry. **[attack result: survived (traced, not asserted) / disposition: n/a]**
 
 **Candidate 2, the real attack:** `construct_candidate_lineage()` treats list *position* as chronological succession, with nothing verifying it. Constructed two genuinely independent, individually fully-verified real generations — A executed first, B executed second, each run through the real engine and `verify_segments()` separately — then handed to `construct_candidate_lineage()` in reversed order: `segments=[segments_b[0], segments_a[0]]`, `results=[results_b[0], results_a[0]]`. This construction preserves every guard the function already has: lengths match, each segment matches its own paired result, adjacent generation_ids differ, both individually `fully_verified`. Confirmed via `pytest -v` (`PASSED`): the function returns a single edge, `from_generation_id=_GEN_B, to_generation_id=_GEN_A` — the reverse of what actually happened.
 
@@ -315,7 +364,7 @@ Disposition: documentation confirmation. No code changes this turn.
 
 **Unprovable is not the same as unimportant.** The Corollary in `REPLAY_GENERATION_MODEL.md` distinguishes the input contract (`segments` MUST be supplied in true historical order — the entire graph's meaning depends on it) from the verification claim (Phoenix cannot independently confirm that contract was honored). This finding is a gap in the latter, not evidence the former doesn't matter — a caller violating the contract gets a silently backwards graph, not a loud failure.
 
-Disposition: **found → formally documented limitation** — the first `MB-004` finding of this kind; Substitution, Omission, and Boundary Crossing were all found→fixed. Same category as `MB-003` itself: refusing to manufacture a verification claim the evidence cannot support is, per this methodology's own disposition loop, exactly as valid an outcome as a fix.
+Disposition: **found → formally documented limitation** — the first `MB-004` finding of this kind; Substitution, Omission, and Boundary Crossing were all found→fixed. Same category as `MB-003` itself: refusing to manufacture a verification claim the evidence cannot support is, per this methodology's own disposition loop, exactly as valid an outcome as a fix. **[finding: epistemic limitation / disposition: documented limitation]**
 
 ---
 
@@ -323,9 +372,9 @@ Disposition: **found → formally documented limitation** — the first `MB-004`
 
 Not requested, but a natural extension once the taxonomy existed — applying two of the seven families to the two directional checks just built.
 
-**Omission — resolved 2026-08-08.** `verify_causal_history()`'s own docstring states the deliberate contract explicitly: `passed=True` means *all requested checks passed*, not *all applicable checks passed* — "behavior is IDENTICAL to before Check 4 existed." The distinguishing signal (`policy_decision_record_count` staying `None` when Checks 4/5 didn't run) already existed and was already documented — the finding was never that no signal exists, only that it's *indirect*: a caller checking only `.passed`, the obviously-named field, would never notice it. Built: `checks_run: FrozenSet[str]`, populated with a stable string identifier for every check that actually executed, always including the six that always run, plus the two optional ones when `policy_decision_log_path` is supplied. This adds no new information over what `policy_decision_record_count` already implied — it adds discoverability: a field literally named `checks_run` doesn't require already knowing the indirect inference. Two regression tests confirm the exact set in both the with- and without-policy-log cases.
+**Omission — resolved 2026-08-08.** `verify_causal_history()`'s own docstring states the deliberate contract explicitly: `passed=True` means *all requested checks passed*, not *all applicable checks passed* — "behavior is IDENTICAL to before Check 4 existed." The distinguishing signal (`policy_decision_record_count` staying `None` when Checks 4/5 didn't run) already existed and was already documented — the finding was never that no signal exists, only that it's *indirect*: a caller checking only `.passed`, the obviously-named field, would never notice it. Built: `checks_run: FrozenSet[str]`, populated with a stable string identifier for every check that actually executed, always including the six that always run, plus the two optional ones when `policy_decision_log_path` is supplied. This adds no new information over what `policy_decision_record_count` already implied — it adds discoverability: a field literally named `checks_run` doesn't require already knowing the indirect inference. Two regression tests confirm the exact set in both the with- and without-policy-log cases. **[finding: implementation defect / disposition: fixed + regression]** — a mild one (adds discoverability, not new information), but still a concrete code change with a regression test, not a documentation-only outcome.
 
-**Duplication — decision made 2026-08-08: stay logged, not built. This is a resolved "insufficient evidence to act" state, not an unresolved one.** Check 4's matching logic (`policy_by_key.setdefault(key, []).append(p)`, then `any(...)` over the matches) accepts *any* number of matching `PolicyDecisionRecord`s at a given key — it asserts "at least one," never "exactly one." A duplicated, byte-identical `PolicyDecisionRecord` appended twice would pass Check 4 without comment. The retry-legitimacy investigation (2026-08-07) checked every file with sandbox access to the append path — `policy_decision_record_log.py` (its own docstring explicitly disclaims "crash safety, atomic writes, or concurrent-writer coordination... those remain separate, harder questions"), and `deterministic_execution_engine.py`, which never calls `append_policy_decision_record()` (or any `append_*`) at all — it only builds in-memory lists; real persistence happens outside this file. No other file in the sandbox calls any `append_*` function except tests setting up fixtures. **That investigation was already exhausted — there is no further fact-finding available without the production persistence call site, which genuinely isn't in this sandbox and cannot be requested without knowing what file it would even be.** The honest conclusion stands exactly where it was left: no retry logic exists anywhere in accessible code, narrowing the risk to "a bug in an unseen caller, or deliberate fabrication" — but this does not amount to evidence that duplicates are categorically impossible in the real architecture, and tightening to "exactly one" without that evidence risks breaking a legitimate pattern this project simply cannot see. **Decision: remain at "logged, not built." This is the responsible conclusion given the actual evidence ceiling, not a deferred one** — revisiting it would require new source material, not more analysis of what's already here.
+**Duplication — decision made 2026-08-08: stay logged, not built. This is a resolved "insufficient evidence to act" state, not an unresolved one.** Check 4's matching logic (`policy_by_key.setdefault(key, []).append(p)`, then `any(...)` over the matches) accepts *any* number of matching `PolicyDecisionRecord`s at a given key — it asserts "at least one," never "exactly one." A duplicated, byte-identical `PolicyDecisionRecord` appended twice would pass Check 4 without comment. The retry-legitimacy investigation (2026-08-07) checked every file with sandbox access to the append path — `policy_decision_record_log.py` (its own docstring explicitly disclaims "crash safety, atomic writes, or concurrent-writer coordination... those remain separate, harder questions"), and `deterministic_execution_engine.py`, which never calls `append_policy_decision_record()` (or any `append_*`) at all — it only builds in-memory lists; real persistence happens outside this file. No other file in the sandbox calls any `append_*` function except tests setting up fixtures. **That investigation was already exhausted — there is no further fact-finding available without the production persistence call site, which genuinely isn't in this sandbox and cannot be requested without knowing what file it would even be.** The honest conclusion stands exactly where it was left: no retry logic exists anywhere in accessible code, narrowing the risk to "a bug in an unseen caller, or deliberate fabrication" — but this does not amount to evidence that duplicates are categorically impossible in the real architecture, and tightening to "exactly one" without that evidence risks breaking a legitimate pattern this project simply cannot see. **Decision: remain at "logged, not built." This is the responsible conclusion given the actual evidence ceiling, not a deferred one** — revisiting it would require new source material, not more analysis of what's already here. **[finding: insufficient evidence / disposition: logged / pending evidence]**
 
 ---
 
@@ -347,6 +396,8 @@ One claim can take multiple attacks from different families; the useful unit of 
 | MB-004 (candidate lineage construction) | ✓ clean (three mechanisms jointly close it — see Eleventh finding) | ✓ found→documented (list position trusted as chronological order, unprovable under current schema — see Twelfth finding, Corollary to Theorem 2) | ✓ found→fixed (adjacent segments sharing a `generation_id` now rejected, `PG-001` precedent) | ✓ found→fixed (segment/result cross-check added, same precedent) | — | ✓ found→fixed (segment-label-vs-content mismatch, root cause in Phase 2, same precedent) | — |
 
 Legend: **found→fixed** = real gap, closed with regression test. **found→pending** = real finding, disposition decided but not yet built/resolved. **found→documented** = real, correctly-scoped limitation, now written down. **clean** = attacked, survived, often confirming existing documentation. **⚠ blocked** = attack designed, execution blocked pending a fact-check this methodology refuses to skip. **—** = not yet attempted; absence of evidence, not evidence of absence.
+
+This shorthand predates, and is preserved unchanged by, the formal ATTACK RESULT / DISPOSITION taxonomy introduced above — each finding's full write-up now also carries its two-axis tag; the matrix cells themselves are left in their original shorthand rather than retrofitted cell-by-cell, since the shorthand already cross-references each finding's full entry.
 
 The empty cells are the actual backlog now, not a vague "keep going."
 
