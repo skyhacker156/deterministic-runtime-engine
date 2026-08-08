@@ -498,6 +498,46 @@ def _check_module_identity_cross_reference(
     checks against persisted registration ATTEMPTS, not live registry
     state -- see module docstring GAP discussion for why that
     distinction matters.
+
+    CLAIM BOUNDARY (2026-08-08, traced via adversarial review after
+    MB-004 reached full family coverage -- calibration attack against
+    a claim outside the Mode B campaign, to test whether the
+    methodology generalizes): this check establishes only that each
+    referenced module_id has at least one successful registration
+    attempt somewhere in the supplied registration history. It does
+    NOT establish that the successful registration preceded the
+    decision or audit record referencing that module_id.
+
+    The available persisted evidence does not establish the temporal
+    ordering between successful module registration and subsequent
+    module reference. ModuleRegistrationAttemptRecord carries
+    attempted_at_ns, but DecisionRecord and ExecutionAuditRecord
+    provide no comparable, trustworthy wall-clock coordinate to check
+    it against -- the same limitation already stated in this module's
+    docstring for Check 2 ("frame_timestamp_ns is explicitly data, not
+    wall-clock... no reliable shared clock to interleave the two files
+    by") applies here for the same underlying reason, just never
+    previously connected to Check 3's own claim. Consequently this
+    check intentionally performs an existence/cross-reference check,
+    not a temporal causality check -- and that is not an unfinished
+    version of a check that will someday compare timestamps; there is
+    no persisted field this check could compare against to make that
+    determination, by the same evidentiary gap that limits Check 2.
+
+    Do not read Check 3: PASS for module_id=X as "X was validly
+    registered when it was used." It means only "X has a successful
+    registration attempt somewhere in this history" -- a real,
+    narrower claim. Traced and confirmed structurally ruled out for
+    Substitution, Duplication, Boundary Crossing (registration is
+    deliberately generation-independent by design -- module identity
+    persists across resets, unlike sequence_id-bearing records, so the
+    absence of generation_id scoping here is correct, not a repeat of
+    Check 1/Check 2's original cross-generation-conflation bugs), and
+    Orphan. Asymmetry does not apply -- registration-to-reference is
+    inherently many-to-one, so there is no natural reverse-direction
+    invariant to check. The one already-known, already-documented gap
+    (PolicyDecisionRecord.module_id is never checked against this at
+    all) is PG-001's existing transitive-edge finding, not new.
     """
     failures = []
     successfully_registered_ids = {
