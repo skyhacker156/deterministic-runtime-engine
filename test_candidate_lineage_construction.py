@@ -322,3 +322,48 @@ def test_mismatched_segment_and_verification_result_pair_raises_value_error():
     # is malformed on its own -- only the pairing is wrong.
     with pytest.raises(ValueError, match="does not match"):
         construct_candidate_lineage(segments_a, results_b)
+def test_reversed_generation_segments_produce_reverse_candidate_edge():
+    """
+    FORMAL LIMITATION, NOT A BUG (2026-08-08 -- MB-004/Asymmetry
+    finding, see REPLAY_GENERATION_MODEL.md's Corollary to Theorem 2).
+    Generation segments carry no independently authenticated
+    cross-generation ordering evidence -- generation_id is minted
+    independently of everything prior (the same Generation Identity
+    Independence Principle that makes Theorem 2's identity-continuity
+    question unprovable also makes chronological ordering unprovable),
+    and the only per-record field that varies with real time
+    (frame_timestamp_ns) is caller-supplied at frame creation with
+    zero validation -- hash-chained tamper-evident, never
+    authenticated as accurate.
+
+    Consequently construct_candidate_lineage() CANNOT distinguish
+    [A, B] from [B, A] when handed two individually-verified,
+    genuinely real segments directly -- there is no persisted
+    evidence available to make that determination, not merely a
+    missing check. This test documents that boundary rather than
+    characterizing a defect: DO NOT "fix" this by adding a raise or an
+    ordering check without a genuine new source of persisted,
+    non-independent evidence (see the Corollary's "what would have to
+    change" section) -- doing so would replace an honest inability to
+    determine order with a fabricated one.
+
+    gen_a_log is genuinely earlier (executed first); gen_b_log is
+    genuinely later. Both independently verified. Handed to
+    construct_candidate_lineage() in reversed list order.
+    """
+    gen_a_log = _run_real_generation(_GEN_A, frame_count=3)
+    gen_b_log = _run_real_generation(_GEN_B, frame_count=3)
+
+    segments_a = segment_by_generation(list(gen_a_log))
+    segments_b = segment_by_generation(list(gen_b_log))
+    results_a = verify_segments(segments_a)
+    results_b = verify_segments(segments_b)
+
+    segments = [segments_b[0], segments_a[0]]
+    results = [results_b[0], results_a[0]]
+
+    graph = construct_candidate_lineage(segments, results)
+
+    assert len(graph.edges) == 1
+    assert graph.edges[0].from_generation_id == _GEN_B
+    assert graph.edges[0].to_generation_id == _GEN_A
