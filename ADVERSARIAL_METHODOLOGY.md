@@ -203,6 +203,20 @@ Verified directly against `candidate_lineage_construction.py`'s real source (202
 
 ---
 
+## Seventh finding: CH-001's Omission surface — a contradictory decision pair goes unweighed
+
+**Attack (Omission family, deliberately targeting CH-001's remaining blank cell):** `CH-001` had Boundary Crossing and Orphan/Asymmetry both attacked and fixed already; Omission was the one family left untried, and the claim's own subject matter — "every audit has a corresponding decision" — points directly at it: what evidence required for that relationship can disappear while the verifier still passes?
+
+Traced against `_check_decision_ancestry()`'s real source: the match condition is `if key in denied_keys and key not in allowed_keys` for the denied-only case, falling through to `elif key not in allowed_keys` otherwise. **A key present in *both* `allowed_keys` and `denied_keys` simultaneously satisfies neither branch** — the first requires the key's *absence* from `allowed_keys`, the second requires the same. The audit is silently accepted as validly matched. The denial evidence doesn't get weighed against the allowed decision; it disappears from consideration the instant any allowed decision exists at that key, regardless of a contradictory denial sitting right next to it.
+
+**Why this is a real, not merely theoretical, gap:** in normal operation, exactly one decision is ever made per frame — a key can never legitimately appear in both sets. The only ways to produce this state are a genuine data-integrity failure or deliberate fabrication: append one fake `allowed=True` `DecisionRecord` at the same key as a real denied one, and the entire verifier treats the frame as legitimately authorized, with the denial silently omitted. Exactly the kind of "laundering" attack this project's whole verification apparatus exists to prevent.
+
+**Fix:** Check 7 (`_check_no_contradictory_decisions`) added, always runs (needs only `decision_records`, no optionality). Validates `decision_records`' own internal consistency directly — independent of whether any audit even references the contradictory key, catching the fabrication at its source rather than only its downstream effect on Check 1. Two regression tests: the core attack (contradictory pair, no audits needed at all, since this is purely a decision-log integrity concern) and a false-positive check confirming a denial and a later allowance at *different* sequence_ids — ordinary, legitimate history — is not flagged.
+
+Disposition: fix + regression test, same discipline as every other real finding this campaign has produced.
+
+---
+
 ## Two additional findings, surfaced by applying Omission and Duplication to CH-004/CH-006
 
 Not requested, but a natural extension once the taxonomy existed — applying two of the seven families to the two directional checks just built.
@@ -219,7 +233,7 @@ One claim can take multiple attacks from different families; the useful unit of 
 
 | Claim | Orphan | Asymmetry | Substitution | Omission | Duplication | Boundary crossing | Semantic inflation |
 |---|---|---|---|---|---|---|---|
-| CH-001 (decision ancestry) | ✓ found→fixed (Check 6) | ✓ found→fixed (Check 6) | — | — | — | ✓ found→fixed (Check 1, earlier) | — |
+| CH-001 (decision ancestry) | ✓ found→fixed (Check 6) | ✓ found→fixed (Check 6) | — | ✓ found→fixed (Check 7) | — | ✓ found→fixed (Check 1, earlier) | — |
 | CH-003 (module identity cross-reference) | — | — | — | ✓ found→documented (`GAP-005`, schema-level) | — | — | — |
 | CH-002 (sequence ordering) | — | — | — | — | — | ✓ found→fixed (superseded an earlier premature clean verdict — see write-up) | — |
 | CH-004/CH-006 (policy provenance, both directions) | ✓ found→fixed | ✓ found→fixed | ✓ clean (`test_swapped_...`) | ✓ found→pending | ✓ found→pending | ✓ clean (generation-mismatch tests) | — |

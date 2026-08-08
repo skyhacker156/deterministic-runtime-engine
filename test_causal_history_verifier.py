@@ -876,3 +876,68 @@ def test_genuine_out_of_order_within_one_generation_is_still_caught(three_log_pa
 
     assert report.passed is False
     assert any("Sequence ordering" in f and "out of causal order" in f for f in report.failures)
+
+
+# ---------------------------------------------------------------------
+# 11. Check 7 -- no contradictory decisions (CH-001 Omission finding)
+# ---------------------------------------------------------------------
+
+def test_contradictory_allowed_and_denied_decisions_at_same_key_are_caught(three_log_paths):
+    """
+    The CH-001 Omission finding: a (sequence_id, module_id,
+    generation_id) key with BOTH an allowed and a denied
+    DecisionRecord. Before Check 7 existed, Check 1's matching logic
+    would silently accept any audit at this key -- the denial evidence
+    disappearing from consideration the instant an allowed decision
+    also existed there. This is exactly what a fabricated "laundering"
+    attack would look like: append a fake allowed decision alongside a
+    genuine denial. No audit records needed at all -- this check
+    validates decision_records' own internal consistency directly.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("phoenix_a_core_v1")
+    )
+    append_decision_record(
+        three_log_paths["decision"], _make_decision(5, "phoenix_a_core_v1", allowed=False)
+    )
+    append_decision_record(
+        three_log_paths["decision"],
+        _make_decision(5, "phoenix_a_core_v1", allowed=True, hash_seed=b"fabricated"),
+    )
+    open(three_log_paths["audit"], "w", encoding="utf-8").close()
+
+    report = verify_causal_history(
+        three_log_paths["registration"], three_log_paths["decision"], three_log_paths["audit"]
+    )
+
+    assert report.passed is False
+    assert any(
+        "Contradictory decisions" in f and "sequence_id=5" in f
+        for f in report.failures
+    )
+
+
+def test_no_false_positive_when_denied_and_allowed_decisions_are_at_different_keys(three_log_paths):
+    """
+    Sanity check: Check 7 must not flag ordinary, legitimate decision
+    history where a denial and a later allowance simply happen for the
+    same module at DIFFERENT sequence_ids -- only an exact key
+    collision is contradictory.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("phoenix_a_core_v1")
+    )
+    append_decision_record(
+        three_log_paths["decision"], _make_decision(1, "phoenix_a_core_v1", allowed=False)
+    )
+    append_decision_record(
+        three_log_paths["decision"], _make_decision(2, "phoenix_a_core_v1", allowed=True)
+    )
+    append_audit_record(three_log_paths["audit"], _make_audit(2, "phoenix_a_core_v1"))
+
+    report = verify_causal_history(
+        three_log_paths["registration"], three_log_paths["decision"], three_log_paths["audit"]
+    )
+
+    assert report.passed is True
+    assert not any("Contradictory decisions" in f for f in report.failures)

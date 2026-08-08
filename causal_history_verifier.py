@@ -15,7 +15,7 @@ not touch ExecutionModuleRegistry or DeterministicExecutionEngine. See
 KNOWN GAPS below for what a full recovery model would still need
 beyond this.
 
-SIX CHECKS PERFORMED (each independently, each honestly provable from
+SEVEN CHECKS PERFORMED (each independently, each honestly provable from
 what is actually persisted today):
 
 1. Decision ancestry: every ExecutionAuditRecord in the audit log has
@@ -135,6 +135,24 @@ what is actually persisted today):
    alone, applying Check 1's own generation-awareness lesson to this
    check's design rather than reintroducing the same class of
    cross-generation conflation bug in new code.
+
+7. No contradictory decisions (NEW, 2026-08-08 -- found via
+   adversarial review of CH-001's Omission surface, always runs, not
+   optional): no (sequence_id, module_id, generation_id) key may have
+   BOTH an allowed AND a denied DecisionRecord. Check 1's matching
+   logic only ever asks "is this key in allowed_keys" -- if a key is
+   present in BOTH allowed_keys and denied_keys simultaneously (two
+   DecisionRecords disagreeing about whether the same frame was
+   authorized), Check 1 silently accepts any audit at that key as
+   validly matched, with the denial evidence completely omitted from
+   consideration the moment any allowed decision exists there too.
+   This is exactly the shape an adversary would want: append one
+   fabricated allowed=True DecisionRecord at the same key as a genuine
+   denied one, and the whole verifier treats the frame as legitimately
+   authorized. This check validates decision_records' own internal
+   consistency directly -- independent of whether any audit even
+   references the contradictory key, catching the fabrication at its
+   source rather than only its downstream effect on Check 1.
 
 ===========================================================================
 KNOWN GAPS -- explicitly NOT checked by this module, and why
@@ -373,6 +391,48 @@ def _check_decision_execution_completeness(decision_records, audit_records) -> L
     return failures
 
 
+def _check_no_contradictory_decisions(decision_records) -> List[str]:
+    """
+    Check 7: no (sequence_id, module_id, generation_id) key may have
+    BOTH an allowed AND a denied DecisionRecord. Found via adversarial
+    review of CH-001's Omission surface -- Check 1's matching logic
+    only asks "is this key in allowed_keys"; a key present in BOTH
+    allowed_keys and denied_keys simultaneously falls through both of
+    Check 1's branches silently, with the denial evidence completely
+    omitted from consideration. See this module's docstring, Check 7,
+    for the full account of why this matters (a fabricated allowed
+    decision at the same key as a genuine denial would otherwise make
+    the verifier treat the frame as legitimately authorized).
+
+    Validates decision_records' own internal consistency directly --
+    independent of whether any audit references the contradictory key
+    at all, catching the fabrication at its source rather than only
+    its downstream effect on Check 1.
+    """
+    failures: List[str] = []
+
+    allowed_keys = {
+        (d.sequence_id, d.module_id, d.generation_id)
+        for d in decision_records if d.allowed
+    }
+    denied_keys = {
+        (d.sequence_id, d.module_id, d.generation_id)
+        for d in decision_records if not d.allowed
+    }
+
+    contradictory_keys = allowed_keys & denied_keys
+    for sequence_id, module_id, generation_id in sorted(contradictory_keys):
+        failures.append(
+            f"Contradictory decisions: (sequence_id={sequence_id}, "
+            f"module_id={module_id!r}, generation_id={generation_id.hex()}) has "
+            f"BOTH an allowed and a denied DecisionRecord -- this frame cannot "
+            f"have been both authorized and denied. One of these records is "
+            f"fabricated, or a genuine data-integrity failure occurred."
+        )
+
+    return failures
+
+
 def _check_sequence_ordering(records, log_name: str) -> List[str]:
     """
     Check 2: within each (module_id, generation_id) pair, sequence_id
@@ -605,6 +665,7 @@ def verify_causal_history(
     failures: List[str] = []
     failures.extend(_check_decision_ancestry(decision_records, audit_records))
     failures.extend(_check_decision_execution_completeness(decision_records, audit_records))
+    failures.extend(_check_no_contradictory_decisions(decision_records))
     failures.extend(_check_sequence_ordering(decision_records, "decision_log"))
     failures.extend(_check_sequence_ordering(audit_records, "audit_log"))
     failures.extend(
