@@ -50,6 +50,34 @@ PASS. Recognizing a shape and verifying a claim are different
 operations performed by different code in different files; this
 module's only job is to combine their OUTPUTS honestly, never to blur
 their MEANINGS.
+
+DISPATCH EXHAUSTIVENESS IS NOW ENFORCED, NOT ASSUMED (2026-08-08,
+latent exhaustiveness / maintenance-boundary finding -- distinct in
+kind from the MB-004 adversarial campaign, since nothing external can
+synthesize a fourth SchemaRecognition member at runtime; the risk is
+future code evolution, not adversarial input today): both dispatch
+functions below previously reached their CURRENT_SCHEMA verification
+branch purely by process of elimination -- ruling out
+RECOGNIZED_HISTORICAL_SCHEMA and UNRECOGNIZED, then assuming (via a
+comment, never a check) that anything remaining must be CURRENT_SCHEMA.
+SchemaRecognition has exactly three members as of this writing, so
+that assumption was correct today -- but it was an invariant this
+module relied on without establishing it itself, held together only by
+this file and historical_schema_recognition.py staying in sync. If a
+future SchemaRecognition member is ever added (e.g. a
+PARTIALLY_RECOGNIZED tier) without this dispatch being updated to
+handle it explicitly, a payload of that new kind would previously have
+silently fallen into the CURRENT_SCHEMA branch and had real
+verification attempted against it -- a possible false PASS or FAIL for
+a record this module was never actually confirmed to understand. Now
+each dispatch function explicitly checks for CURRENT_SCHEMA before
+proceeding, and raises immediately on anything else, making the
+exhaustiveness assumption fail closed rather than silently absorbing
+an unrecognized future state. This is the same "load-bearing
+assumptions enforced at the boundary where they matter" principle
+already established by MB-004's Substitution/Omission/Boundary-Crossing/
+Duplication fixes, applied here to a maintenance-time risk rather than
+a runtime-adversarial one.
 ===========================================================================
 """
 
@@ -151,6 +179,13 @@ def verify_decision_record_line(payload: Dict) -> HistoricalVerificationResult:
     here -- an unparseable shape matches neither the current nor any
     known historical schema -- so this is checked explicitly before
     classification runs, not left to an uncaught exception.
+
+    DISPATCH IS NOW EXPLICITLY THREE-WAY, NOT ELIMINATION-BY-TWO
+    (2026-08-08, see module docstring): the CURRENT_SCHEMA branch below
+    is only entered after an explicit check confirms
+    classification.recognition == CURRENT_SCHEMA -- a future
+    SchemaRecognition member this dispatch doesn't know about raises
+    immediately rather than silently receiving real verification.
     """
     if not isinstance(payload, dict):
         return HistoricalVerificationResult(
@@ -181,7 +216,20 @@ def verify_decision_record_line(payload: Dict) -> HistoricalVerificationResult:
             detail=classification.explanation(),
         )
 
-    # CURRENT_SCHEMA: the only branch where real verification is
+    if classification.recognition != SchemaRecognition.CURRENT_SCHEMA:
+        raise ValueError(
+            f"Unrecognized SchemaRecognition value {classification.recognition!r} "
+            f"-- this dispatch is exhaustive over exactly CURRENT_SCHEMA, "
+            f"RECOGNIZED_HISTORICAL_SCHEMA, and UNRECOGNIZED as of this "
+            f"module's writing. A new SchemaRecognition member was added "
+            f"without updating this dispatch to handle it explicitly -- "
+            f"failing loudly here rather than silently treating an unknown "
+            f"future state as CURRENT_SCHEMA and attempting real "
+            f"verification against it."
+        )
+
+    # CURRENT_SCHEMA, now explicitly confirmed above, not assumed by
+    # elimination: the only branch where real verification is
     # attempted at all. Always via the actual class, never reimplemented.
     try:
         decision_record_from_json(json.dumps(payload))
@@ -203,7 +251,8 @@ def verify_decision_record_line(payload: Dict) -> HistoricalVerificationResult:
 def verify_execution_audit_record_line(payload: Dict) -> HistoricalVerificationResult:
     """
     Same shape as verify_decision_record_line(), for ExecutionAuditRecord,
-    including the same non-dict-input guard.
+    including the same non-dict-input guard and the same explicit
+    three-way dispatch (2026-08-08).
     """
     if not isinstance(payload, dict):
         return HistoricalVerificationResult(
@@ -232,6 +281,18 @@ def verify_execution_audit_record_line(payload: Dict) -> HistoricalVerificationR
             schema_family=None,
             outcome=VerificationOutcome.CORRUPT,
             detail=classification.explanation(),
+        )
+
+    if classification.recognition != SchemaRecognition.CURRENT_SCHEMA:
+        raise ValueError(
+            f"Unrecognized SchemaRecognition value {classification.recognition!r} "
+            f"-- this dispatch is exhaustive over exactly CURRENT_SCHEMA, "
+            f"RECOGNIZED_HISTORICAL_SCHEMA, and UNRECOGNIZED as of this "
+            f"module's writing. A new SchemaRecognition member was added "
+            f"without updating this dispatch to handle it explicitly -- "
+            f"failing loudly here rather than silently treating an unknown "
+            f"future state as CURRENT_SCHEMA and attempting real "
+            f"verification against it."
         )
 
     try:

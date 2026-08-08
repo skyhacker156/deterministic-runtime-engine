@@ -246,3 +246,76 @@ def test_guard_permits_unsupported_historical_format_with_schema_family():
         detail="fine",
     )
     assert result.outcome == VerificationOutcome.UNSUPPORTED_HISTORICAL_FORMAT
+
+def test_decision_record_dispatch_raises_on_unrecognized_schema_recognition_value():
+    """
+    Latent exhaustiveness finding (2026-08-08): verify_decision_record_line()
+    previously reached its CURRENT_SCHEMA verification branch purely by
+    eliminating RECOGNIZED_HISTORICAL_SCHEMA and UNRECOGNIZED, assuming
+    (via comment, never a check) that anything remaining must be
+    CURRENT_SCHEMA. SchemaRecognition has exactly three members today,
+    so this was correct -- but nothing enforced it. This test cannot
+    add a real fourth SchemaRecognition member (that would require
+    editing historical_schema_recognition.py itself), so it simulates
+    the shape of the risk directly: monkeypatching
+    classify_decision_record_payload() to return a classification whose
+    .recognition is not any of the three real SchemaRecognition values,
+    confirming the dispatch now fails loudly rather than silently
+    attempting real verification against an unrecognized state.
+    """
+    import historical_verification as hv
+    from dataclasses import dataclass
+    from typing import Optional
+
+    class _FakeFutureRecognition:
+        """Deliberately NOT a SchemaRecognition member -- stands in for
+        a hypothetical future enum value this dispatch doesn't know
+        about yet."""
+        name = "PARTIALLY_RECOGNIZED"
+        def __repr__(self):
+            return "_FakeFutureRecognition.PARTIALLY_RECOGNIZED"
+
+    @dataclass
+    class _FakeClassification:
+        recognition: object
+        schema_name: Optional[str] = None
+
+    original = hv.classify_decision_record_payload
+    hv.classify_decision_record_payload = lambda payload: _FakeClassification(
+        recognition=_FakeFutureRecognition()
+    )
+    try:
+        with pytest.raises(ValueError, match="Unrecognized SchemaRecognition value"):
+            hv.verify_decision_record_line({"some": "payload"})
+    finally:
+        hv.classify_decision_record_payload = original
+
+
+def test_execution_audit_record_dispatch_raises_on_unrecognized_schema_recognition_value():
+    """
+    Same finding, ExecutionAuditRecord side -- see the DecisionRecord
+    version's docstring for the full rationale.
+    """
+    import historical_verification as hv
+    from dataclasses import dataclass
+    from typing import Optional
+
+    class _FakeFutureRecognition:
+        name = "PARTIALLY_RECOGNIZED"
+        def __repr__(self):
+            return "_FakeFutureRecognition.PARTIALLY_RECOGNIZED"
+
+    @dataclass
+    class _FakeClassification:
+        recognition: object
+        schema_name: Optional[str] = None
+
+    original = hv.classify_execution_audit_record_payload
+    hv.classify_execution_audit_record_payload = lambda payload: _FakeClassification(
+        recognition=_FakeFutureRecognition()
+    )
+    try:
+        with pytest.raises(ValueError, match="Unrecognized SchemaRecognition value"):
+            hv.verify_execution_audit_record_line({"some": "payload"})
+    finally:
+        hv.classify_execution_audit_record_payload = original
