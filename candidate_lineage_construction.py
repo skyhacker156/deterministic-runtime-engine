@@ -146,6 +146,21 @@ def construct_candidate_lineage(
     generation_segment_verification.verify_segments(segments) already
     guarantees when called as verify_segments(segments).
 
+    ADJACENT SEGMENTS MUST REPRESENT DIFFERENT GENERATIONS (2026-08-08,
+    found via adversarial review of MB-004, the highest-information
+    untested cell in the campaign matrix): generation_segmentation.py's
+    segment_by_generation() structurally guarantees this for real Phase
+    1 output -- it is what makes two list entries separate segments in
+    the first place. But this function itself never verified that
+    precondition, even though it already defends the comparably
+    load-bearing length-match precondition below with a raise. Left
+    undefended, a caller bypassing Phase 1 with a malformed segments
+    list (two adjacent entries sharing one generation_id) would get a
+    CandidateLineageEdge with from_generation_id == to_generation_id --
+    not a malformed length, a semantically meaningless "boundary" that
+    doesn't represent a transition at all, silently accepted rather
+    than caught the same way the length mismatch already is.
+
     Only segments Phase 2 fully verified are included in the graph.
     Edges are built only between segments that are BOTH fully verified
     AND consecutive in the original Phase 1 order -- an edge is never
@@ -170,6 +185,18 @@ def construct_candidate_lineage(
     for i in range(len(segments) - 1):
         current_segment, current_result = segments[i], verification_results[i]
         next_result = verification_results[i + 1]
+
+        if current_result.generation_id == next_result.generation_id:
+            raise ValueError(
+                f"segments[{i}] and segments[{i + 1}] share the same "
+                f"generation_id ({current_result.generation_id.hex()}) -- "
+                f"adjacent list entries must represent DIFFERENT generations, "
+                f"exactly what generation_segmentation.segment_by_generation() "
+                f"already guarantees for real Phase 1 output. This input could "
+                f"not have come from a real segment_by_generation() call; an "
+                f"edge between two same-generation segments would not "
+                f"represent a generation boundary at all."
+            )
 
         if current_result.fully_verified and next_result.fully_verified:
             edges.append(CandidateLineageEdge(

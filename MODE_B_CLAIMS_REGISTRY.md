@@ -52,9 +52,11 @@
 
 **Status:** VERIFIED (as a graph-construction procedure — explicitly **not** VERIFIED as a continuity proof; see MB-003, which this claim depends on and does not override)
 
-**Evidence:** `candidate_lineage_construction.py::construct_candidate_lineage()`; `test_candidate_lineage_construction.py`, 7/7, including a deliberately hand-corrupted segment proving unverified segments are excluded and never silently bridged.
+**Evidence:** `candidate_lineage_construction.py::construct_candidate_lineage()`; `test_candidate_lineage_construction.py`, 8/8, including a deliberately hand-corrupted segment proving unverified segments are excluded and never silently bridged, and (2026-08-08, adversarial finding) a same-generation-adjacency guard proving two real, independently-verified segments sharing one `generation_id` are rejected outright rather than silently producing a meaningless edge.
 
 **Limitation:** every edge in the constructed graph carries `continuity_caveat` unconditionally, restating MB-003's boundary on every single edge rather than once in a docstring. `fault_record_precedes_boundary` is supporting evidence only, never proof of *why* a transition occurred — and its `False` value is explicitly documented as not suspicious, since the schema does not guarantee a fault record exists for every real administrative reset.
+
+**Fixed 2026-08-08 (adversarial finding, MB-004's first attempted attack family):** `construct_candidate_lineage()` defended its length-match precondition with a `raise` but never verified a comparably load-bearing one — that adjacent segments actually represent different generations, which `generation_segmentation.py`'s `segment_by_generation()` structurally guarantees for real Phase 1 output but this function never re-checked. A caller bypassing Phase 1 with malformed input (two adjacent, genuinely-verified segments sharing one `generation_id`) would previously get a `CandidateLineageEdge` with `from_generation_id == to_generation_id` — not a data-integrity failure, a "boundary" that doesn't represent any real transition at all, accepted silently. Now raises `ValueError` immediately, matching the existing length-check's own pattern. Same disposition precedent as `PG-001`: an adversarial-fabrication-only finding (Phase 1 itself can never produce this input) still gets fixed, not just documented, in this project.
 
 ---
 

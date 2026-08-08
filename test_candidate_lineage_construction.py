@@ -252,3 +252,42 @@ def test_edge_with_preceding_fault_record_is_noted_as_corroborating_not_proof():
     explanation = edge.explanation()
     assert "consistent with" in explanation
     assert "not proof" in explanation
+
+
+# ---------------------------------------------------------------------
+# 3. Adjacent same-generation segments -- found via adversarial review
+#    (highest-information untested cell in the campaign matrix)
+# ---------------------------------------------------------------------
+
+def test_adjacent_segments_sharing_a_generation_id_raise_value_error():
+    """
+    Phase 1's segment_by_generation() structurally guarantees adjacent
+    segments always have different generation_ids -- that is what
+    makes them separate segments in the first place. This function
+    itself never verified that precondition, even though it already
+    defends the comparably load-bearing length-match precondition with
+    a raise (test_mismatched_length_inputs_raise_value_error).
+
+    This hand-constructs exactly the malformed input Phase 1 could
+    never produce: two REAL, independently-verified segments (both
+    genuinely hash-chained, both fully_verified) that happen to share
+    one generation_id, assembled as adjacent list entries -- bypassing
+    segment_by_generation() entirely. Before this fix, this would have
+    silently produced a CandidateLineageEdge with
+    from_generation_id == to_generation_id -- not a malformed length,
+    a "boundary" that doesn't represent any real transition at all.
+    """
+    from generation_segmentation import GenerationSegment
+
+    gen_a_log_1 = _run_real_generation(_GEN_A, frame_count=2)
+    gen_a_log_2 = _run_real_generation(_GEN_A, frame_count=2)
+
+    malformed_segments = [
+        GenerationSegment(generation_id=_GEN_A, records=tuple(gen_a_log_1)),
+        GenerationSegment(generation_id=_GEN_A, records=tuple(gen_a_log_2)),
+    ]
+    results = verify_segments(malformed_segments)
+    assert results[0].fully_verified is True and results[1].fully_verified is True
+
+    with pytest.raises(ValueError, match="same generation_id"):
+        construct_candidate_lineage(malformed_segments, results)
