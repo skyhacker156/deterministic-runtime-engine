@@ -291,3 +291,34 @@ def test_adjacent_segments_sharing_a_generation_id_raise_value_error():
 
     with pytest.raises(ValueError, match="same generation_id"):
         construct_candidate_lineage(malformed_segments, results)
+
+
+def test_mismatched_segment_and_verification_result_pair_raises_value_error():
+    """
+    MB-004's Omission finding: segments and verification_results are
+    two SEPARATE parameters. Before this fix, nothing verified that
+    verification_results[i] was genuinely computed FROM segments[i] --
+    a caller supplying a mismatched pair would get an edge whose
+    reported identity (from verification_results[i].generation_id) and
+    whose fault-evidence (from segments[i]'s ACTUAL records, via
+    _last_record_is_fault) came from two different, uncorrelated
+    generations.
+
+    Built entirely from real, genuinely valid objects -- segment A and
+    result B are each individually completely legitimate, exactly as
+    verify_segments() would produce. The violation is purely in how
+    they're paired.
+    """
+    gen_a_log = _run_real_generation(_GEN_A, frame_count=2)
+    gen_b_log = _run_real_generation(_GEN_B, frame_count=2)
+
+    segments_a = segment_by_generation(list(gen_a_log))
+    segments_b = segment_by_generation(list(gen_b_log))
+    results_a = verify_segments(segments_a)
+    results_b = verify_segments(segments_b)
+
+    # segments_a[0] is genuinely generation A's real segment. results_b[0]
+    # is genuinely generation B's real, valid verification result. Neither
+    # is malformed on its own -- only the pairing is wrong.
+    with pytest.raises(ValueError, match="does not match"):
+        construct_candidate_lineage(segments_a, results_b)

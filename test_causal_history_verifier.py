@@ -941,3 +941,66 @@ def test_no_false_positive_when_denied_and_allowed_decisions_are_at_different_ke
 
     assert report.passed is True
     assert not any("Contradictory decisions" in f for f in report.failures)
+
+
+# ---------------------------------------------------------------------
+# 12. checks_run (closes the CH-004/CH-006 Omission finding)
+# ---------------------------------------------------------------------
+
+def test_checks_run_lists_all_six_always_run_checks_when_policy_log_omitted(three_log_paths):
+    """
+    Without policy_decision_log_path, checks_run must contain exactly
+    the six checks that always execute -- and NOT the two optional
+    ones, since they genuinely did not run.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("phoenix_a_core_v1")
+    )
+    append_decision_record(three_log_paths["decision"], _make_decision(1, "phoenix_a_core_v1"))
+    append_audit_record(three_log_paths["audit"], _make_audit(1, "phoenix_a_core_v1"))
+
+    report = verify_causal_history(
+        three_log_paths["registration"], three_log_paths["decision"], three_log_paths["audit"]
+    )
+
+    assert report.checks_run == frozenset({
+        "decision_ancestry",
+        "decision_execution_completeness",
+        "no_contradictory_decisions",
+        "sequence_ordering_decision_log",
+        "sequence_ordering_audit_log",
+        "module_identity_cross_reference",
+    })
+
+
+def test_checks_run_includes_both_optional_checks_when_policy_log_supplied(three_log_paths):
+    """
+    With policy_decision_log_path supplied, checks_run must contain
+    all eight checks, including the two optional ones -- this is the
+    concrete signal a caller checking only .passed would have missed.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("phoenix_a_core_v1")
+    )
+    decision, policy_record = _make_correlated_decision_and_policy_record(1, "phoenix_a_core_v1")
+    append_decision_record(three_log_paths["decision"], decision)
+    append_policy_decision_record(three_log_paths["policy_decision"], policy_record)
+    append_audit_record(three_log_paths["audit"], _make_audit(1, "phoenix_a_core_v1"))
+
+    report = verify_causal_history(
+        three_log_paths["registration"],
+        three_log_paths["decision"],
+        three_log_paths["audit"],
+        policy_decision_log_path=three_log_paths["policy_decision"],
+    )
+
+    assert report.checks_run == frozenset({
+        "decision_ancestry",
+        "decision_execution_completeness",
+        "no_contradictory_decisions",
+        "sequence_ordering_decision_log",
+        "sequence_ordering_audit_log",
+        "module_identity_cross_reference",
+        "policy_decision_provenance",
+        "policy_decision_orphans",
+    })

@@ -219,7 +219,7 @@ is valid").
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, FrozenSet, List, Optional, Tuple
 
 from module_registration_audit_log import read_all_records as read_all_registration_records
 from decision_record_log import read_all_decision_records
@@ -241,12 +241,30 @@ class CausalHistoryReport:
     verify_causal_history()) -- distinguished from 0, which means the
     check DID run and the log was legitimately empty. Do not treat None
     as "Check 4 passed" -- it means Check 4 did not execute at all.
+
+    checks_run (NEW, 2026-08-08 -- closes the CH-004/CH-006 Omission
+    finding from the adversarial campaign): names every check that
+    actually executed this call, as stable string identifiers. Added
+    because policy_decision_record_count already carries this same
+    information (None means Check 4/5 didn't run) but only indirectly
+    -- a caller checking .passed alone, the obviously-named field,
+    could reasonably never notice the indirect signal. This field adds
+    no new INFORMATION over what was already determinable; it adds
+    DISCOVERABILITY -- a field literally named checks_run is not
+    something a caller has to already know to look for. Always
+    contains {"decision_ancestry", "decision_execution_completeness",
+    "no_contradictory_decisions", "sequence_ordering_decision_log",
+    "sequence_ordering_audit_log", "module_identity_cross_reference"}
+    (the six checks that always run), plus
+    {"policy_decision_provenance", "policy_decision_orphans"} when
+    policy_decision_log_path was supplied.
     """
     registration_record_count: int
     decision_record_count: int
     audit_record_count: int
     policy_decision_record_count: Optional[int] = None
     failures: List[str] = field(default_factory=list)
+    checks_run: FrozenSet[str] = field(default_factory=frozenset)
 
     @property
     def passed(self) -> bool:
@@ -663,23 +681,33 @@ def verify_causal_history(
         policy_decision_records = read_all_policy_decision_records(policy_decision_log_path)
 
     failures: List[str] = []
+    checks_run: set = set()
+
     failures.extend(_check_decision_ancestry(decision_records, audit_records))
+    checks_run.add("decision_ancestry")
     failures.extend(_check_decision_execution_completeness(decision_records, audit_records))
+    checks_run.add("decision_execution_completeness")
     failures.extend(_check_no_contradictory_decisions(decision_records))
+    checks_run.add("no_contradictory_decisions")
     failures.extend(_check_sequence_ordering(decision_records, "decision_log"))
+    checks_run.add("sequence_ordering_decision_log")
     failures.extend(_check_sequence_ordering(audit_records, "audit_log"))
+    checks_run.add("sequence_ordering_audit_log")
     failures.extend(
         _check_module_identity_cross_reference(
             registration_records, decision_records, audit_records
         )
     )
+    checks_run.add("module_identity_cross_reference")
     if policy_decision_records is not None:
         failures.extend(
             _check_policy_decision_provenance(decision_records, policy_decision_records)
         )
+        checks_run.add("policy_decision_provenance")
         failures.extend(
             _check_policy_decision_orphans(decision_records, policy_decision_records)
         )
+        checks_run.add("policy_decision_orphans")
 
     return CausalHistoryReport(
         registration_record_count=len(registration_records),
@@ -689,4 +717,5 @@ def verify_causal_history(
             len(policy_decision_records) if policy_decision_records is not None else None
         ),
         failures=failures,
+        checks_run=frozenset(checks_run),
     )

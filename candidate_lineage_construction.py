@@ -161,6 +161,22 @@ def construct_candidate_lineage(
     doesn't represent a transition at all, silently accepted rather
     than caught the same way the length mismatch already is.
 
+    EVERY verification_results[i] MUST ACTUALLY DESCRIBE segments[i]
+    (NEW, 2026-08-08 -- MB-004's Omission finding): segments and
+    verification_results are two SEPARATE parameters. Nothing
+    previously verified that verification_results[i] was genuinely
+    computed FROM segments[i] -- only verification_results[i]'s own
+    generation_id/fully_verified fields were ever read for edge
+    construction, while _last_record_is_fault() separately reads
+    segments[i]'s ACTUAL records. A caller supplying a
+    verification_results entry that doesn't actually correspond to the
+    segment at the same index would get an edge whose reported
+    identity and whose fault-evidence are drawn from two genuinely
+    different, uncorrelated pieces of data -- the cross-check that
+    would connect a verification result back to the segment it claims
+    to describe simply didn't exist. Now validated upfront, for every
+    index, before any edge construction begins.
+
     Only segments Phase 2 fully verified are included in the graph.
     Edges are built only between segments that are BOTH fully verified
     AND consecutive in the original Phase 1 order -- an edge is never
@@ -177,6 +193,17 @@ def construct_candidate_lineage(
             f"{len(verification_results)} results) -- expected "
             f"verification_results = verify_segments(segments)."
         )
+
+    for i, (segment, result) in enumerate(zip(segments, verification_results)):
+        if segment.generation_id != result.generation_id:
+            raise ValueError(
+                f"segments[{i}].generation_id ({segment.generation_id.hex()}) does "
+                f"not match verification_results[{i}].generation_id "
+                f"({result.generation_id.hex()}) -- verification_results must be "
+                f"exactly verify_segments(segments), in the same order. A mismatched "
+                f"pair would let an edge's reported identity diverge from the actual "
+                f"segment data its fault-evidence is drawn from."
+            )
 
     verified_results = [r for r in verification_results if r.fully_verified]
     excluded_results = [r for r in verification_results if not r.fully_verified]

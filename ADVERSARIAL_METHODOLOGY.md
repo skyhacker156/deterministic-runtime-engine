@@ -217,13 +217,57 @@ Disposition: fix + regression test, same discipline as every other real finding 
 
 ---
 
+## Eighth finding: CH-001's remaining three cells, all traced to one structural fact
+
+**Context:** `CH-001` had Orphan, Asymmetry, Omission, and Boundary Crossing already attacked and fixed. The three remaining cells — Substitution, Duplication, Semantic Inflation — turn out to share a single root cause, confirmed directly against both record types' real field lists: `DecisionRecord` and `ExecutionAuditRecord` share **no fields beyond the three-part join key itself** (`sequence_id`, `module_id`, `generation_id`). `decision_hash` (`DecisionRecord`-only) refers to the *policy* decision, not the frame; `input_hash`/`output_hash`/`success`/`frame_timestamp_ns`/`error_message` (`ExecutionAuditRecord`-only) have no counterpart on the decision side. Check 1's matching logic is therefore pure key co-occurrence — it was never designed to, and cannot, cross-validate any content between the two records.
+
+### Substitution — clean, and structurally so, not incidentally
+
+**Attack:** can a genuinely valid `DecisionRecord` be relied upon by the wrong audit?
+
+There is nothing to substitute. Substitution requires shared content that could be swapped between two contexts — `CH-004`'s swap attack worked because `decision_hash` is genuinely shared, checkable content between `DecisionRecord` and `PolicyDecisionRecord`. `CH-001` has no analogous shared content at all beyond the key itself, so there is no vector for this family to exploit. Worth recording as a structural clean pass, not a "nothing found, move on" — a future reader shouldn't need to re-derive why this family doesn't apply here.
+
+### Duplication — real, same shape as the CH-004/CH-006 finding, a new instance
+
+**Attack:** can two `ExecutionAuditRecord`s exist at the identical `(sequence_id, module_id, generation_id)` key, both silently accepted?
+
+Yes. Check 1's loop iterates `audit_records` independently, checking each one's key membership in `allowed_keys` with no tracking across iterations — two audits sharing a key would each pass individually. **Check 6 doesn't catch this either**: `_check_decision_execution_completeness()`'s `audit_keys` is also a *set* comprehension, so it only ever asks "does at least one audit exist at this key," identical `>= 1` semantics to Check 1. A duplicated, byte-identical `ExecutionAuditRecord` is invisible to both checks that touch this relationship.
+
+Investigated the same way as `CH-004`/`CH-006`'s Duplication finding, because it's the same append path: no retry logic exists anywhere in the code actually available (`execution_audit_log.py`, `deterministic_execution_engine.py` — confirmed earlier this session, the production persistence call site itself isn't in this sandbox). Same honest limit applies: cannot rule out an unseen external caller retrying, but no legitimate retry mechanism was found. Logged, not built — same disposition as its sibling finding, for the same reason.
+
+### Semantic inflation — real, and it's the direct consequence of the Substitution finding's cause
+
+**Attack:** can "`CH-001` VERIFIED" be read as a stronger claim than it makes?
+
+Yes, precisely because of the structural fact above: `CH-001` proves a `DecisionRecord` and an `ExecutionAuditRecord` share a key — it does **not** and structurally *cannot* prove the decision's authorization has anything to do with the audit's actual content, since `DecisionRecord` carries none. A future integrator reading "decision ancestry verified" could easily infer "this specific execution's inputs and outputs were authorized," when the honest claim is only "an allowed decision object existed for this attempt identifier." This is worth a documented warning for the same reason `MB-003` and the `HC-001`/`GAP-005` compound risk got one — not a defect in the check, a defect in how its result could be narrated.
+
+### Disposition summary
+
+Substitution: documentation confirmation (structural, not incidental). Duplication: logged, not built (same reasoning as `CH-004`/`CH-006`'s sibling finding). Semantic inflation: formally document limitation. No code changes this turn — `CH-001` is now the most thoroughly attacked claim in the campaign, 7 of 7 families attempted, four real fixes, one structural clean pass, two documented limitations.
+
+---
+
+## Ninth finding: MB-004's second attack, Omission — a cross-check that never existed
+
+**Attack (continuing MB-004's campaign, Omission family, per the reasoning "what evidence can disappear between verified segments and candidate edge while the constructor still produces an apparently valid edge"):** `construct_candidate_lineage(segments, verification_results)` takes two separate parameters. Does anything verify `verification_results[i]` actually describes `segments[i]`?
+
+First hypothesis, checked against real source and ruled out before building anything: could a hand-constructed, zero-record `GenerationSegment` reach edge construction, given `replay_and_verify_state_hashes(())` is confirmed (via `test_empty_history_is_trivially_fully_verified`) to report `fully_verified=True` for empty input? No — `GenerationSegment.sequence_id_range` does `self.records[0].sequence_id`, which `IndexError`s on an empty segment, so `verify_segments()` itself crashes before `construct_candidate_lineage()` is ever reached. Ruling this out is worth recording, not silently discarding — it's what redirected the investigation to the real finding.
+
+**The real finding, tracing exactly which fields the function reads from which parameter:** `current_segment, current_result = segments[i], verification_results[i]` — but only `current_result.generation_id` and `current_result.fully_verified` feed edge construction; `segments[i].generation_id` is read *nowhere*. Meanwhile `_last_record_is_fault(current_segment)` reads `segments[i]`'s actual records directly. **Nothing ever cross-checks that these two came from the same place.** A caller supplying `segments_a` (genuinely real, generation A's actual records) paired with `results_b` (genuinely real, generation B's actual, valid `verify_segments()` output) — each individually completely legitimate — gets an edge whose reported identity comes from generation B while its supporting fault-evidence comes from generation A's real last record. Two uncorrelated pieces of data presented as one coherent artifact.
+
+**Fix:** an upfront validation loop, checked for every index before any edge construction begins — `segments[i].generation_id != verification_results[i].generation_id` raises immediately, matching the existing length-check's and same-generation-check's own pattern. New regression test built entirely from real objects (two real generations, each independently run through `verify_segments()`), swapped in the call — no hand-constructed data anywhere, the violation is purely in the pairing.
+
+Disposition: fix + regression, same `PG-001` precedent as the first MB-004 finding — adversarial-fabrication-only (Phase 1's own pipeline always pairs correctly by construction), still fixed rather than merely documented, since this is a public API a caller could invoke directly.
+
+---
+
 ## Two additional findings, surfaced by applying Omission and Duplication to CH-004/CH-006
 
 Not requested, but a natural extension once the taxonomy existed — applying two of the seven families to the two directional checks just built.
 
-**Omission — contract verified, not guessed; disposition pending.** `verify_causal_history()`'s own docstring states the deliberate contract explicitly: `passed=True` means *all requested checks passed*, not *all applicable checks passed* — "behavior is IDENTICAL to before Check 4 existed." The distinguishing signal (`policy_decision_record_count` staying `None` when Checks 4/5 didn't run) exists and is documented. What it doesn't clear is the bar of being *impossible to misunderstand*: a caller checking only `.passed` — the obviously-named field — would never notice the signal. Candidate fix, additive and non-breaking: a `checks_run: FrozenSet[str]` field naming which checks actually executed. Not built yet — disposition decided, execution pending a decision on whether to build now or log.
+**Omission — resolved 2026-08-08.** `verify_causal_history()`'s own docstring states the deliberate contract explicitly: `passed=True` means *all requested checks passed*, not *all applicable checks passed* — "behavior is IDENTICAL to before Check 4 existed." The distinguishing signal (`policy_decision_record_count` staying `None` when Checks 4/5 didn't run) already existed and was already documented — the finding was never that no signal exists, only that it's *indirect*: a caller checking only `.passed`, the obviously-named field, would never notice it. Built: `checks_run: FrozenSet[str]`, populated with a stable string identifier for every check that actually executed, always including the six that always run, plus the two optional ones when `policy_decision_log_path` is supplied. This adds no new information over what `policy_decision_record_count` already implied — it adds discoverability: a field literally named `checks_run` doesn't require already knowing the indirect inference. Two regression tests confirm the exact set in both the with- and without-policy-log cases.
 
-**Duplication — narrowed 2026-08-07, still not fixed, disposition sharper now.** Check 4's matching logic (`policy_by_key.setdefault(key, []).append(p)`, then `any(...)` over the matches) accepts *any* number of matching `PolicyDecisionRecord`s at a given key — it asserts "at least one," never "exactly one." A duplicated, byte-identical `PolicyDecisionRecord` appended twice would pass Check 4 without comment. **Investigated the retry-legitimacy question directly rather than leave it a hypothesis:** checked every file with sandbox access to the append path — `policy_decision_record_log.py` (its own docstring explicitly disclaims "crash safety, atomic writes, or concurrent-writer coordination... those remain separate, harder questions"), and `deterministic_execution_engine.py`, which turns out to never call `append_policy_decision_record()` (or any `append_*`) at all — it only builds in-memory lists; real persistence happens outside this file. No other file in the sandbox calls any `append_*` function except tests setting up fixtures. **Honest limit: I cannot determine whether any real, unseen caller retries an append** — the production persistence call site isn't in what I have access to. What I *can* say: no retry logic exists anywhere in the code actually available, so the concrete, demonstrated risk narrows to "a bug in an unseen caller, or deliberate fabrication" — not "a documented legitimate retry mechanism," since none was found. This is stronger than last turn's open hypothesis but still short of grounds to unilaterally tighten Check 4/5 to "exactly one" — that's a live-check behavior change worth a explicit decision, not something to build from an absence-of-evidence finding alone.
+**Duplication — decision made 2026-08-08: stay logged, not built. This is a resolved "insufficient evidence to act" state, not an unresolved one.** Check 4's matching logic (`policy_by_key.setdefault(key, []).append(p)`, then `any(...)` over the matches) accepts *any* number of matching `PolicyDecisionRecord`s at a given key — it asserts "at least one," never "exactly one." A duplicated, byte-identical `PolicyDecisionRecord` appended twice would pass Check 4 without comment. The retry-legitimacy investigation (2026-08-07) checked every file with sandbox access to the append path — `policy_decision_record_log.py` (its own docstring explicitly disclaims "crash safety, atomic writes, or concurrent-writer coordination... those remain separate, harder questions"), and `deterministic_execution_engine.py`, which never calls `append_policy_decision_record()` (or any `append_*`) at all — it only builds in-memory lists; real persistence happens outside this file. No other file in the sandbox calls any `append_*` function except tests setting up fixtures. **That investigation was already exhausted — there is no further fact-finding available without the production persistence call site, which genuinely isn't in this sandbox and cannot be requested without knowing what file it would even be.** The honest conclusion stands exactly where it was left: no retry logic exists anywhere in accessible code, narrowing the risk to "a bug in an unseen caller, or deliberate fabrication" — but this does not amount to evidence that duplicates are categorically impossible in the real architecture, and tightening to "exactly one" without that evidence risks breaking a legitimate pattern this project simply cannot see. **Decision: remain at "logged, not built." This is the responsible conclusion given the actual evidence ceiling, not a deferred one** — revisiting it would require new source material, not more analysis of what's already here.
 
 ---
 
@@ -233,16 +277,16 @@ One claim can take multiple attacks from different families; the useful unit of 
 
 | Claim | Orphan | Asymmetry | Substitution | Omission | Duplication | Boundary crossing | Semantic inflation |
 |---|---|---|---|---|---|---|---|
-| CH-001 (decision ancestry) | ✓ found→fixed (Check 6) | ✓ found→fixed (Check 6) | — | ✓ found→fixed (Check 7) | — | ✓ found→fixed (Check 1, earlier) | — |
+| CH-001 (decision ancestry) | ✓ found→fixed (Check 6) | ✓ found→fixed (Check 6) | ✓ clean, structural (no shared content beyond join key) | ✓ found→fixed (Check 7) | ✓ found→logged (duplicate audits, same as CH-004/6) | ✓ found→fixed (Check 1, earlier) | ✓ found→documented |
 | CH-003 (module identity cross-reference) | — | — | — | ✓ found→documented (`GAP-005`, schema-level) | — | — | — |
 | CH-002 (sequence ordering) | — | — | — | — | — | ✓ found→fixed (superseded an earlier premature clean verdict — see write-up) | — |
-| CH-004/CH-006 (policy provenance, both directions) | ✓ found→fixed | ✓ found→fixed | ✓ clean (`test_swapped_...`) | ✓ found→pending | ✓ found→pending | ✓ clean (generation-mismatch tests) | — |
+| CH-004/CH-006 (policy provenance, both directions) | ✓ found→fixed | ✓ found→fixed | ✓ clean (`test_swapped_...`) | ✓ found→fixed (`checks_run`) | ✓ found→logged (evidence ceiling reached, stays logged) | ✓ clean (generation-mismatch tests) | — |
 | HC-001 (registration hash) | — | — | ✓ found→documented (binding can be entirely absent, not just collision-prone) | ✓ found→documented | — | — | ✓ found→documented (compound with `GAP-005`) |
 | HC-003 (audit hash) | — | — | — | ✓ clean (resolved 2026-08-07) | — | — | — |
 | MB-002 (segmentation) | — | — | — | ✓ clean | ✓ clean | ✓ clean (malformed transitions) | — |
 | MB-003 (cross-generation) | — | — | — | — | — | (this claim *is* a boundary-crossing theorem) | ✓ found→documented |
 | PG-001 (graph model itself) | ✓ found→fixed | ✓ found→fixed | — | — | — | — | — |
-| MB-004 (candidate lineage construction) | — | — | ✓ found→fixed (adjacent segments sharing a `generation_id` now rejected, `PG-001` precedent) | — | — | — | — |
+| MB-004 (candidate lineage construction) | — | — | ✓ found→fixed (adjacent segments sharing a `generation_id` now rejected, `PG-001` precedent) | ✓ found→fixed (segment/result cross-check added, same precedent) | — | — | — |
 
 Legend: **found→fixed** = real gap, closed with regression test. **found→pending** = real finding, disposition decided but not yet built/resolved. **found→documented** = real, correctly-scoped limitation, now written down. **clean** = attacked, survived, often confirming existing documentation. **⚠ blocked** = attack designed, execution blocked pending a fact-check this methodology refuses to skip. **—** = not yet attempted; absence of evidence, not evidence of absence.
 
@@ -254,6 +298,6 @@ The empty cells are the actual backlog now, not a vague "keep going."
 
 - No code changes beyond the one small `MB-003` documentation addition already made.
 - HC-003 is resolved (2026-08-07) — see above. No longer out of scope.
-- Duplication (CH-004/CH-006) is narrowed but not fixed — no decision made on whether to tighten Check 4/5 to assert exactly-one-match; the production persistence call site that would settle the retry-legitimacy question outright isn't in this sandbox.
+- Duplication (CH-004/CH-006) — decided 2026-08-08: stays logged, not built. The production persistence call site that would settle the retry-legitimacy question outright isn't in this sandbox, and that fact-finding is now exhausted, not merely paused.
 - The omission and duplication findings against CH-004/CH-006 are logged, not fixed — no decision made here about whether uniqueness assertion is worth adding to either check, or whether `checks_run` is worth building.
 - No claim that seven families is an exhaustive taxonomy — it is the set that explains every finding made so far, not a proof that no eighth family exists.
