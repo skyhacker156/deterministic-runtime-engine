@@ -15,7 +15,7 @@ not touch ExecutionModuleRegistry or DeterministicExecutionEngine. See
 KNOWN GAPS below for what a full recovery model would still need
 beyond this.
 
-FIVE CHECKS PERFORMED (each independently, each honestly provable from
+SIX CHECKS PERFORMED (each independently, each honestly provable from
 what is actually persisted today):
 
 1. Decision ancestry: every ExecutionAuditRecord in the audit log has
@@ -38,14 +38,29 @@ what is actually persisted today):
    shape, including its "generation mismatch" vs. "no corresponding
    record" diagnostic distinction.
 
-2. Per-module sequence ordering: within each module_id, sequence_ids
-   appear in non-decreasing order as recorded, separately in the
-   decision log and in the audit log. This checks that each log's
-   append order is causally sane per module -- it does NOT attempt to
-   interleave the two logs against each other by wall-clock time (see
-   KNOWN GAPS: frame_timestamp_ns is explicitly data, not wall-clock,
-   per ExecutionAuditRecord's own docstring, so there is no reliable
+2. Per-generation sequence ordering: within each (module_id,
+   generation_id) pair, sequence_ids appear in non-decreasing order as
+   recorded, separately in the decision log and in the audit log. This
+   checks that each log's append order is causally sane per module per
+   generation -- it does NOT attempt to interleave the two logs
+   against each other by wall-clock time (see KNOWN GAPS:
+   frame_timestamp_ns is explicitly data, not wall-clock, per
+   ExecutionAuditRecord's own docstring, so there is no reliable
    shared clock to interleave the two files by).
+
+   v2 (2026-08-07): generation_id added to the join key -- found by
+   accident (a Check 6 regression test constructing two genuinely
+   different generations for the same module_id, entirely legitimate
+   data, tripped this check instead). Before the fix, this check
+   guaranteed a false "out of causal order" violation on ANY real
+   multi-generation history for the same module_id, since sequence_id
+   legitimately resets to 0 after every administrative reset. Not an
+   adversarial edge case -- a correctness bug that would break on
+   ordinary, healthy operation the moment a system ever experiences
+   more than one generation. Same class of gap Check 1 had before its
+   own fix, more severe in practice: Check 1 needed a coincidental
+   cross-generation collision to misfire; this fired unconditionally
+   on every reset.
 
 3. Module identity cross-reference: every module_id appearing in
    either the decision log or the audit log has at least one
@@ -96,6 +111,30 @@ what is actually persisted today):
    PolicyDecisionRecord -> DecisionRecord edge was entirely unchecked
    in either direction. Same optionality as Check 4: only runs when
    policy_decision_log_path is supplied.
+
+6. Decision execution completeness (NEW, 2026-08-07 -- the reverse
+   direction of Check 1, always runs, not optional): every ALLOWED
+   DecisionRecord that is not the LAST allowed decision for its
+   (module_id, generation_id) has a corresponding audit record. Found
+   by tracing deterministic_execution_engine.py's process_frame()
+   directly: DecisionRecord is appended to the decision log
+   UNCONDITIONALLY, before module.execute() is ever called. Any
+   uncaught exception from module.execute() -- a genuine module bug,
+   or a hostile module -- means the line constructing
+   ExecutionAuditRecord never runs. The live kernel correctly faults,
+   but nothing backfills an audit record; the allowed decision stays
+   persisted, permanently, with no matching audit record, invisible to
+   Checks 1-5. Deliberately exempts the trailing case (the LAST
+   allowed decision for a module/generation having no audit record) --
+   this is the legitimate "execution crashed, nothing came after"
+   case, mirroring kernel_state_replay.py's own fully_verified
+   property, which already treats a history that legitimately ends at
+   a fault as fully verified. What this check flags is a missing audit
+   record with LATER decisions or audits proving execution continued
+   past it. Scoped per (module_id, generation_id), not module_id
+   alone, applying Check 1's own generation-awareness lesson to this
+   check's design rather than reintroducing the same class of
+   cross-generation conflation bug in new code.
 
 ===========================================================================
 KNOWN GAPS -- explicitly NOT checked by this module, and why
@@ -255,26 +294,120 @@ def _check_decision_ancestry(decision_records, audit_records) -> List[str]:
     return failures
 
 
+def _check_decision_execution_completeness(decision_records, audit_records) -> List[str]:
+    """
+    Check 6: the reverse direction of Check 1. Check 1 verifies every
+    audit record has a matching allowed decision; this verifies every
+    allowed decision that is NOT the last allowed decision for its
+    (module_id, generation_id) has a matching audit record.
+
+    Found via adversarial review 2026-08-07, tracing deterministic_execution_engine.py's
+    process_frame() directly: DecisionRecord is appended to the decision
+    log UNCONDITIONALLY, before module.execute() is ever called. If
+    module.execute() raises any exception not already anticipated as
+    StateMachineError/ExecutionEngineError -- a genuine module bug, or
+    a deliberately hostile module -- the line constructing
+    ExecutionAuditRecord never runs. The live kernel correctly
+    transitions to FAULTED (process_frame()'s own catch-all handler),
+    but nothing backfills an audit record for the frame that never
+    completed. The allowed DecisionRecord stays persisted, permanently,
+    with no corresponding audit record -- and was invisible to every
+    other check: Checks 1-5 never look for a decision with no matching
+    audit record at all.
+
+    THE TRAILING-CRASH EXEMPTION, deliberate, not an oversight: the
+    LAST allowed decision for a (module_id, generation_id) pair is
+    exempted if it has no audit record. This is the legitimate
+    "execution crashed and nothing came after" case -- there genuinely
+    is nothing to build an audit record FROM if module.execute() threw
+    before returning any ExecutionResult at all. This mirrors
+    kernel_state_replay.py's own KernelReplayReport.fully_verified
+    property, which already treats a history that legitimately ends at
+    a fault, with nothing after it, as fully verified -- the fault
+    itself is not disqualifying, only records that exist but couldn't
+    be checked are. What THIS check flags is an allowed decision with
+    no audit record that is followed by LATER decisions or audits for
+    the SAME (module_id, generation_id) -- proof execution
+    demonstrably continued past it, meaning the missing audit was
+    silently skipped or fabricated, not a trailing crash.
+
+    GENERATION-SCOPED DELIBERATELY, applying the Check 1 lesson to this
+    check's own design rather than repeating it: "last decision" is
+    computed per (module_id, generation_id), not per module_id alone.
+    Grouping by module_id only would wrongly flag a legitimate
+    trailing-crash decision in one generation just because a LATER
+    generation reused the same module_id successfully -- the exact
+    class of cross-generation conflation Check 1's fix closed,
+    reintroduced in a new check if this weren't scoped correctly.
+    """
+    failures: List[str] = []
+
+    allowed_by_module_generation: dict = {}
+    for d in decision_records:
+        if d.allowed:
+            key = (d.module_id, d.generation_id)
+            allowed_by_module_generation.setdefault(key, []).append(d)
+
+    audit_keys = {
+        (a.sequence_id, a.module_id, a.generation_id) for a in audit_records
+    }
+
+    for (module_id, generation_id), decisions in allowed_by_module_generation.items():
+        decisions_sorted = sorted(decisions, key=lambda d: d.sequence_id)
+        last_sequence_id = decisions_sorted[-1].sequence_id
+
+        for d in decisions_sorted:
+            key = (d.sequence_id, d.module_id, d.generation_id)
+            if key not in audit_keys and d.sequence_id != last_sequence_id:
+                failures.append(
+                    f"Decision execution completeness: allowed decision "
+                    f"(sequence_id={d.sequence_id}, module_id={d.module_id!r}, "
+                    f"generation_id={d.generation_id.hex()}) has no corresponding "
+                    f"audit record, and LATER decisions exist for this "
+                    f"(module_id, generation_id) -- execution demonstrably "
+                    f"continued past this point, so this is not a legitimate "
+                    f"trailing crash. The audit record was silently skipped, "
+                    f"or the decision was fabricated."
+                )
+
+    return failures
+
+
 def _check_sequence_ordering(records, log_name: str) -> List[str]:
     """
-    Check 2: within each module_id, sequence_id is non-decreasing in
-    the order records were read from the log (i.e. the order they were
-    appended). Applied separately to the decision log and the audit
-    log -- see module docstring for why cross-log interleaving isn't
-    attempted.
+    Check 2: within each (module_id, generation_id) pair, sequence_id
+    is non-decreasing in the order records were read from the log
+    (i.e. the order they were appended). Applied separately to the
+    decision log and the audit log -- see module docstring for why
+    cross-log interleaving isn't attempted.
+
+    v2 (2026-08-07): generation_id added to the join key. Found by
+    accident, not deliberate attack -- a Check 6 regression test
+    constructing two genuinely different generations for the same
+    module_id (entirely legitimate real-world data) tripped THIS
+    check instead, because sequence_id legitimately resets to 0 after
+    every administrative reset. Before this fix, Check 2 would
+    guarantee a false "out of causal order" violation on ANY real
+    multi-generation history for the same module_id -- not an
+    adversarial edge case, but a correctness bug that would break on
+    ordinary, healthy operation the moment a system experiences more
+    than one generation. Same class of gap Check 1 had before its own
+    generation_id fix, more severe in practice: Check 1's gap needed a
+    coincidental cross-generation collision; this one fires
+    unconditionally on every reset.
     """
     failures = []
-    last_seen: Dict[str, int] = {}
+    last_seen: Dict[Tuple[str, bytes], int] = {}
     for record in records:
-        module_id = record.module_id
+        key = (record.module_id, record.generation_id)
         seq = record.sequence_id
-        if module_id in last_seen and seq < last_seen[module_id]:
+        if key in last_seen and seq < last_seen[key]:
             failures.append(
-                f"Sequence ordering ({log_name}): module_id={module_id!r} has "
-                f"sequence_id {seq} appearing after {last_seen[module_id]} -- "
-                f"out of causal order."
+                f"Sequence ordering ({log_name}): module_id={record.module_id!r}, "
+                f"generation_id={record.generation_id.hex()} has sequence_id {seq} "
+                f"appearing after {last_seen[key]} -- out of causal order."
             )
-        last_seen[module_id] = max(last_seen.get(module_id, seq), seq)
+        last_seen[key] = max(last_seen.get(key, seq), seq)
     return failures
 
 
@@ -471,6 +604,7 @@ def verify_causal_history(
 
     failures: List[str] = []
     failures.extend(_check_decision_ancestry(decision_records, audit_records))
+    failures.extend(_check_decision_execution_completeness(decision_records, audit_records))
     failures.extend(_check_sequence_ordering(decision_records, "decision_log"))
     failures.extend(_check_sequence_ordering(audit_records, "audit_log"))
     failures.extend(

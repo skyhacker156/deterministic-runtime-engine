@@ -302,7 +302,10 @@ def test_ordering_check_is_independent_per_module(three_log_paths):
     """
     Two different modules interleaved in append order should NOT be
     flagged -- ordering is checked per module_id, not globally across
-    the whole log.
+    the whole log. Matching audit records included for every decision
+    -- this test is about Check 2's independence, not Check 6's
+    decision/audit completeness, so it must stay clean under Check 6
+    to actually isolate what it's testing.
     """
     append_registration_record(
         three_log_paths["registration"], _make_registration("module_a")
@@ -319,7 +322,9 @@ def test_ordering_check_is_independent_per_module(three_log_paths):
     append_decision_record(
         three_log_paths["decision"], _make_decision(2, "module_a", allowed=True)
     )
-    open(three_log_paths["audit"], "w", encoding="utf-8").close()
+    append_audit_record(three_log_paths["audit"], _make_audit(1, "module_a"))
+    append_audit_record(three_log_paths["audit"], _make_audit(1, "module_b"))
+    append_audit_record(three_log_paths["audit"], _make_audit(2, "module_a"))
 
     report = verify_causal_history(
         three_log_paths["registration"], three_log_paths["decision"], three_log_paths["audit"]
@@ -666,3 +671,208 @@ def test_orphan_check_does_not_false_positive_on_correlated_records(three_log_pa
 
     assert report.passed is True
     assert not any("orphan" in f.lower() for f in report.failures)
+
+
+# ---------------------------------------------------------------------
+# 9. Check 6 -- decision execution completeness (reverse of Check 1)
+# ---------------------------------------------------------------------
+
+def test_mid_stream_decision_with_no_audit_is_caught(three_log_paths):
+    """
+    The core Check 6 attack, traced directly from
+    deterministic_execution_engine.py's process_frame(): an allowed
+    decision at sequence_id=1 has NO matching audit record, but a
+    LATER decision (sequence_id=2) DOES have one -- proof execution
+    continued past sequence_id=1, so its missing audit cannot be a
+    legitimate trailing crash. Must be caught.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("phoenix_a_core_v1")
+    )
+    append_decision_record(three_log_paths["decision"], _make_decision(0, "phoenix_a_core_v1"))
+    append_decision_record(three_log_paths["decision"], _make_decision(1, "phoenix_a_core_v1"))
+    append_decision_record(three_log_paths["decision"], _make_decision(2, "phoenix_a_core_v1"))
+    append_audit_record(three_log_paths["audit"], _make_audit(0, "phoenix_a_core_v1"))
+    # sequence_id=1's audit deliberately never appended.
+    append_audit_record(three_log_paths["audit"], _make_audit(2, "phoenix_a_core_v1"))
+
+    report = verify_causal_history(
+        three_log_paths["registration"], three_log_paths["decision"], three_log_paths["audit"]
+    )
+
+    assert report.passed is False
+    assert any(
+        "Decision execution completeness" in f and "sequence_id=1" in f
+        for f in report.failures
+    )
+
+
+def test_trailing_decision_with_no_audit_is_not_flagged(three_log_paths):
+    """
+    The deliberate exemption: the LAST allowed decision for a module
+    has no audit record -- the legitimate "execution crashed, nothing
+    came after" case, mirroring kernel_state_replay.py's own
+    fully_verified property's treatment of a trailing fault. Must NOT
+    be flagged.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("phoenix_a_core_v1")
+    )
+    append_decision_record(three_log_paths["decision"], _make_decision(0, "phoenix_a_core_v1"))
+    append_decision_record(three_log_paths["decision"], _make_decision(1, "phoenix_a_core_v1"))
+    append_decision_record(three_log_paths["decision"], _make_decision(2, "phoenix_a_core_v1"))
+    append_audit_record(three_log_paths["audit"], _make_audit(0, "phoenix_a_core_v1"))
+    append_audit_record(three_log_paths["audit"], _make_audit(1, "phoenix_a_core_v1"))
+    # sequence_id=2 is the LAST allowed decision and has no audit --
+    # exempted, not a violation.
+
+    report = verify_causal_history(
+        three_log_paths["registration"], three_log_paths["decision"], three_log_paths["audit"]
+    )
+
+    assert report.passed is True
+    assert not any("Decision execution completeness" in f for f in report.failures)
+
+
+def test_trailing_exemption_is_scoped_per_generation_not_globally(three_log_paths):
+    """
+    The specific bug this fix was designed to avoid reintroducing:
+    generation A's trailing decision (sequence_id=1, no audit -- a
+    legitimate crash at the end of generation A) must stay exempted
+    even though generation B, numerically overlapping on sequence_id,
+    has LATER decisions with audits. Grouping by module_id alone
+    (ignoring generation_id) would wrongly treat generation B's
+    sequence_id=1/2 as "proof processing continued past generation A's
+    sequence_id=1" -- they are unrelated kernel lifetimes. Confirms
+    the (module_id, generation_id) scoping actually holds.
+    """
+    _GEN_B = b"\xBB" * 16
+
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("phoenix_a_core_v1")
+    )
+    # Generation A: decision 0 (with audit), decision 1 (trailing, no audit).
+    append_decision_record(three_log_paths["decision"], _make_decision(0, "phoenix_a_core_v1"))
+    append_decision_record(three_log_paths["decision"], _make_decision(1, "phoenix_a_core_v1"))
+    append_audit_record(three_log_paths["audit"], _make_audit(0, "phoenix_a_core_v1"))
+
+    # Generation B: fresh sequence numbering, decisions 0/1/2, all with audits.
+    for seq_id in range(3):
+        append_decision_record(
+            three_log_paths["decision"],
+            DecisionRecord(
+                sequence_id=seq_id, module_id="phoenix_a_core_v1", allowed=True,
+                decision_hash=_hash32(f"gen_b_{seq_id}".encode()), generation_id=_GEN_B,
+            ),
+        )
+        append_audit_record(
+            three_log_paths["audit"],
+            ExecutionAuditRecord(
+                sequence_id=seq_id, input_hash=_hash32(b"in"), prior_state_hash=_hash32(b"prior"),
+                output_hash=_hash32(f"out_{seq_id}".encode()), module_id="phoenix_a_core_v1",
+                success=True, frame_timestamp_ns=1000 + seq_id, generation_id=_GEN_B,
+                error_message=None,
+            ),
+        )
+
+    report = verify_causal_history(
+        three_log_paths["registration"], three_log_paths["decision"], three_log_paths["audit"]
+    )
+
+    assert report.passed is True
+    assert not any("Decision execution completeness" in f for f in report.failures)
+
+
+def test_single_allowed_decision_no_audit_is_trivially_exempted(three_log_paths):
+    """Sanity check: a single allowed decision with no audit is
+    automatically its own "last" -- must never be flagged alone."""
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("phoenix_a_core_v1")
+    )
+    append_decision_record(three_log_paths["decision"], _make_decision(0, "phoenix_a_core_v1"))
+    open(three_log_paths["audit"], "w", encoding="utf-8").close()
+
+    report = verify_causal_history(
+        three_log_paths["registration"], three_log_paths["decision"], three_log_paths["audit"]
+    )
+
+    assert report.passed is True
+    assert not any("Decision execution completeness" in f for f in report.failures)
+
+
+# ---------------------------------------------------------------------
+# 10. Check 2 -- generation-scoped sequence ordering (found by accident
+#     while testing Check 6, fixed with the same priority as Check 1)
+# ---------------------------------------------------------------------
+
+def test_sequence_numbering_resetting_across_a_real_generation_boundary_is_not_flagged(three_log_paths):
+    """
+    The exact false positive found by accident this session: a real,
+    entirely legitimate multi-generation history for the SAME
+    module_id -- sequence_id numerically resets to 0 in the new
+    generation, exactly as it does after every real administrative
+    reset (test_administrative_reset_clears_sequence_counters). Before
+    the generation_id join-key fix, Check 2 would unconditionally flag
+    this as "out of causal order" on every single reset, for any
+    module, with no adversarial input required at all. Isolated here
+    from Check 6 entirely (decisions and audits both fully paired) so
+    this test targets Check 2 specifically.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("phoenix_a_core_v1")
+    )
+
+    # Generation A: sequence_id 0, 1.
+    append_decision_record(three_log_paths["decision"], _make_decision(0, "phoenix_a_core_v1"))
+    append_decision_record(three_log_paths["decision"], _make_decision(1, "phoenix_a_core_v1"))
+    append_audit_record(three_log_paths["audit"], _make_audit(0, "phoenix_a_core_v1"))
+    append_audit_record(three_log_paths["audit"], _make_audit(1, "phoenix_a_core_v1"))
+
+    # Generation B: fresh sequence numbering, 0, 1 again -- the exact
+    # pattern a real reset produces.
+    _GEN_B = b"\xBB" * 16
+    for seq_id in range(2):
+        append_decision_record(
+            three_log_paths["decision"],
+            DecisionRecord(
+                sequence_id=seq_id, module_id="phoenix_a_core_v1", allowed=True,
+                decision_hash=_hash32(f"gen_b_{seq_id}".encode()), generation_id=_GEN_B,
+            ),
+        )
+        append_audit_record(
+            three_log_paths["audit"],
+            ExecutionAuditRecord(
+                sequence_id=seq_id, input_hash=_hash32(b"in"), prior_state_hash=_hash32(b"prior"),
+                output_hash=_hash32(f"out_{seq_id}".encode()), module_id="phoenix_a_core_v1",
+                success=True, frame_timestamp_ns=1000 + seq_id, generation_id=_GEN_B,
+                error_message=None,
+            ),
+        )
+
+    report = verify_causal_history(
+        three_log_paths["registration"], three_log_paths["decision"], three_log_paths["audit"]
+    )
+
+    assert report.passed is True
+    assert not any("Sequence ordering" in f for f in report.failures)
+
+
+def test_genuine_out_of_order_within_one_generation_is_still_caught(three_log_paths):
+    """
+    Sanity check: the generation_id fix must not weaken Check 2's core
+    purpose. A real out-of-order sequence WITHIN one generation must
+    still be caught.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("phoenix_a_core_v1")
+    )
+    append_decision_record(three_log_paths["decision"], _make_decision(2, "phoenix_a_core_v1"))
+    append_decision_record(three_log_paths["decision"], _make_decision(1, "phoenix_a_core_v1"))
+    open(three_log_paths["audit"], "w", encoding="utf-8").close()
+
+    report = verify_causal_history(
+        three_log_paths["registration"], three_log_paths["decision"], three_log_paths["audit"]
+    )
+
+    assert report.passed is False
+    assert any("Sequence ordering" in f and "out of causal order" in f for f in report.failures)
