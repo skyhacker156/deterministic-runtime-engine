@@ -117,12 +117,40 @@ def verify_segments(
     other -- that is Phase 3's job, if built. This function's only
     contract is: N segments in, N independent SegmentVerificationResults
     out, one per segment, in the same order.
+
+    SEGMENT LABEL MUST MATCH ITS OWN RECORDS (NEW, 2026-08-08 --
+    Boundary Crossing finding from the adversarial campaign):
+    GenerationSegment is a plain frozen dataclass with no validation
+    of its own -- nothing enforces that generation_id (the external
+    label) actually matches what its records field contains.
+    replay_and_verify_state_hashes() (Phase 2's underlying verifier)
+    independently derives its OWN reference generation_id from
+    execution_history[0].generation_id and checks every record against
+    THAT -- but it has no parameter for an externally-claimed label to
+    cross-check against, and this function was previously trusting
+    segment.generation_id wholesale when constructing
+    SegmentVerificationResult, never comparing it to what the records
+    themselves actually attest to. segment_by_generation() (Phase 1)
+    always derives generation_id FROM the records, so this mismatch
+    can never occur via the real pipeline -- but a caller constructing
+    GenerationSegment directly bypasses that guarantee entirely. Now
+    checked explicitly, before any result is built.
     """
     if verifier is None:
         verifier = SequentialReplayKernelVerifier()
 
     results: List[SegmentVerificationResult] = []
     for segment in segments:
+        if segment.records and segment.generation_id != segment.records[0].generation_id:
+            raise ValueError(
+                f"GenerationSegment.generation_id ({segment.generation_id.hex()}) does "
+                f"not match its own records' actual generation_id "
+                f"({segment.records[0].generation_id.hex()}) -- this segment's external "
+                f"label does not describe the data it actually contains. "
+                f"segment_by_generation() derives generation_id FROM the records "
+                f"themselves and would never produce this mismatch; a caller "
+                f"constructing GenerationSegment directly bypassed that guarantee."
+            )
         report = verifier.verify(segment.records)
         results.append(SegmentVerificationResult(
             generation_id=segment.generation_id,

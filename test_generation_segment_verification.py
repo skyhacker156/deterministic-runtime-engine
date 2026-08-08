@@ -148,3 +148,37 @@ def test_segment_spanning_two_real_generations_is_flagged_not_silently_passed():
     assert results[0].unexpectedly_crosses_generation_boundary is True
     assert results[0].fully_verified is False
     assert results[0].replay_report.generation_boundary_index is not None
+
+
+def test_segment_label_mismatching_its_own_records_raises_value_error():
+    """
+    Boundary Crossing finding (2026-08-08): a GenerationSegment whose
+    records are internally consistent -- all genuinely, correctly
+    hash-chained -- but whose external generation_id label does not
+    match what those records actually are. Distinct from the mixed-
+    generation test above: there, the FIRST record correctly matches
+    the label and a LATER one diverges mid-stream, caught by the
+    boundary check inside replay_and_verify_state_hashes(). Here,
+    EVERY record is genuinely, consistently generation B -- the replay
+    itself would succeed cleanly and honestly report fully_verified on
+    B's real history -- but the segment's own label falsely claims A.
+
+    Before this fix: SegmentVerificationResult.generation_id was taken
+    directly from the mismatched label, unconditionally, with nothing
+    anywhere cross-checking it against execution_history[0]'s real
+    generation_id -- which replay_and_verify_state_hashes() itself
+    already derives internally but never exposes for comparison. This
+    would have silently produced fully_verified=True labeled as the
+    WRONG generation, with unexpectedly_crosses_generation_boundary
+    staying False throughout, since nothing about the replay itself
+    was actually inconsistent.
+    """
+    gen_b_log = _run_real_generation(_GEN_B, frame_count=2)
+
+    mislabeled_segment = GenerationSegment(
+        generation_id=_GEN_A,  # claims A
+        records=tuple(gen_b_log),  # but every record is genuinely, consistently B
+    )
+
+    with pytest.raises(ValueError, match="does not match its own records"):
+        verify_segments([mislabeled_segment])

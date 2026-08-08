@@ -261,6 +261,44 @@ Disposition: fix + regression, same `PG-001` precedent as the first MB-004 findi
 
 ---
 
+## Tenth finding: MB-004's third attack, Boundary Crossing — root cause one layer upstream, in Phase 2
+
+**Attack (continuing MB-004's campaign, explicitly scoped to Boundary Crossing only, per instruction not to expand into `VP-001`):** two fixes already exist for mismatches between a segment and *something else* (adjacent segments' generation identity, and segment/result pairing). The remaining question specific to Boundary Crossing: can evidence genuinely belonging to one generation be presented, and accepted, as belonging to a different one — not through mismatched pairing, but through the segment's own label simply not matching its own content?
+
+Traced through all three layers of the pipeline before asserting anything. `GenerationSegment` (`generation_segmentation.py`): a plain frozen dataclass, no `__post_init__`, no validation that `records` share `generation_id` — confirmed directly against source. `replay_and_verify_state_hashes()` (`kernel_state_replay_updated.py`): seeds its own reference `generation_id` from `execution_history[0].generation_id` — the records' *own* data — and checks every subsequent record against *that*, but the function signature has no parameter at all for an externally-claimed label to cross-check against. `verify_segments()` (`generation_segment_verification.py`): calls the verifier with only `segment.records`, then separately, unconditionally builds `SegmentVerificationResult(generation_id=segment.generation_id, ...)` — trusting the label completely, never comparing it to what the records themselves, and Phase 2's own internal replay, actually derived.
+
+**The gap this leaves:** a `GenerationSegment` whose `records` are entirely, internally consistent — all genuinely generation B, correctly hash-chained, nothing mixed or corrupted — but whose external `generation_id` label falsely claims A. The replay succeeds honestly on B's real data; `fully_verified=True` is a completely accurate statement about the records. But `SegmentVerificationResult.generation_id` reports A. `unexpectedly_crosses_generation_boundary` stays `False` throughout, since nothing about the replay itself was inconsistent — this is invisible to the *existing* mixed-generation test (`test_segment_spanning_two_real_generations_is_flagged_not_silently_passed`), which covers a different failure shape entirely: there, the first record correctly matches the label and a later one diverges mid-stream, caught by the boundary check inside the replay loop. Here, every record agrees with every other record — just not with the label sitting outside all of them.
+
+**Why this matters for MB-004 specifically, even though the fix landed in Phase 2:** `construct_candidate_lineage()`'s two existing guards both operate on `verification_results[i].generation_id` — and a mislabeled segment reaching Phase 3 would have sailed past *both* of them, since the label would be internally self-consistent by the time Phase 3 ever sees it. The two Phase 3 fixes protect against a caller mismatching parameters; this fix protects against the data itself being wrong before either parameter is even constructed. Root cause traced one layer upstream rather than patched at the symptom.
+
+**Fix:** `verify_segments()` now checks `segment.generation_id != segment.records[0].generation_id` (when `records` is non-empty) before calling the verifier, raising immediately — matching the same pattern as every other precondition guard added this campaign. New regression test built from one real engine run (genuinely, consistently generation B) deliberately mislabeled as A — not fabricated data, just a false label on real content.
+
+Disposition: fix + regression, same `PG-001` precedent. Campaign scope respected: `VP-001` not touched this turn, per instruction.
+
+---
+
+## Eleventh finding: MB-004's fourth attack, Orphan — clean, and precisely because of prior work, not by accident
+
+**Attack (Orphan family, scoped to `MB-004` only per instruction — no expansion into `VP-001`):** can a `CandidateLineageEdge` exist in `graph.edges` referencing a generation not actually present in `graph.verified_segments` — a valid-looking artifact never genuinely connected into the graph, the same shape as the original Check 5/`PG-001` finding?
+
+Traced rather than assumed clean. Three checks, in order:
+
+1. **Can an edge reference a generation absent from the inventory?** No — `edges` and `verified_segments` are both derived from the exact same `verification_results` list (`verified_results = [r for r in verification_results if r.fully_verified]`, and edges only ever built between adjacent pairs both satisfying that same `fully_verified` condition). An edge's endpoints are structurally guaranteed to appear in the inventory it's drawn from.
+
+2. **Can a self-referential orphan edge form (an edge claiming a transition that never happened)?** This was possible before this session's earlier fix — the same-generation-adjacency guard (Substitution family) closes exactly this: an edge with `from_generation_id == to_generation_id` no longer forms at all.
+
+3. **Can `excluded_segments` contain a "ghost" entry — a result mismatched from the segment it's paired with?** This was also possible before the Omission fix, which validates `segment.generation_id == result.generation_id` for *every* index, not only ones adjacent to an edge — so entries destined for `excluded_segments` are covered by the same guarantee as ones destined for `verified_segments`.
+
+**A fourth angle checked explicitly, since it's the one place this session hadn't yet verified precisely:** does `fully_verified` correctly go `False` if a segment's *internal* records diverge in generation anywhere past the first — not just mid-stream, but even at the very last record? Confirmed against `kernel_state_replay_updated.py`: `fully_verified` requires `verified_count == total_records`, and any internal mismatch breaks the replay loop early, leaving `verified_count < total_records` regardless of *where* the mismatch falls. A segment with an internally inconsistent tail is excluded before it can reach Phase 3 at all — the pre-existing mixed-generation detection, untouched by any fix this session, already covers this.
+
+**Named honestly rather than glossed over:** `verified_segments` can legitimately contain an isolated entry — a verified segment surrounded by excluded neighbors, with no edge touching it at all. Checked against the field's own documented contract before treating this as a finding: it's declared as an inventory of everything Phase 2 verified, never a claim of connectivity — `edges` is the separate field for that. An isolated entry isn't missing an implied relationship the field never made.
+
+**Why this is a meaningful clean pass, not a shrug:** three independent mechanisms close this off, and only one of them (the pre-existing mixed-generation detection) predates this session's work — the other two (same-generation-adjacency, segment/result cross-check) were built for *different* attack families (Substitution and Omission respectively) and happen to jointly close Orphan as a side effect. Worth recording precisely, matching the `CH-002` lesson: a clean verdict is only as good as what was actually checked against it, and this one traces to three named, verified mechanisms rather than an absence of trying.
+
+Disposition: documentation confirmation. No code changes this turn.
+
+---
+
 ## Two additional findings, surfaced by applying Omission and Duplication to CH-004/CH-006
 
 Not requested, but a natural extension once the taxonomy existed — applying two of the seven families to the two directional checks just built.
@@ -286,7 +324,7 @@ One claim can take multiple attacks from different families; the useful unit of 
 | MB-002 (segmentation) | — | — | — | ✓ clean | ✓ clean | ✓ clean (malformed transitions) | — |
 | MB-003 (cross-generation) | — | — | — | — | — | (this claim *is* a boundary-crossing theorem) | ✓ found→documented |
 | PG-001 (graph model itself) | ✓ found→fixed | ✓ found→fixed | — | — | — | — | — |
-| MB-004 (candidate lineage construction) | — | — | ✓ found→fixed (adjacent segments sharing a `generation_id` now rejected, `PG-001` precedent) | ✓ found→fixed (segment/result cross-check added, same precedent) | — | — | — |
+| MB-004 (candidate lineage construction) | ✓ clean (three mechanisms jointly close it — see Eleventh finding) | — | ✓ found→fixed (adjacent segments sharing a `generation_id` now rejected, `PG-001` precedent) | ✓ found→fixed (segment/result cross-check added, same precedent) | — | ✓ found→fixed (segment-label-vs-content mismatch, root cause in Phase 2, same precedent) | — |
 
 Legend: **found→fixed** = real gap, closed with regression test. **found→pending** = real finding, disposition decided but not yet built/resolved. **found→documented** = real, correctly-scoped limitation, now written down. **clean** = attacked, survived, often confirming existing documentation. **⚠ blocked** = attack designed, execution blocked pending a fact-check this methodology refuses to skip. **—** = not yet attempted; absence of evidence, not evidence of absence.
 
