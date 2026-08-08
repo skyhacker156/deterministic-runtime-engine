@@ -442,6 +442,21 @@ Disposition: **found → documented limitation**, no code behavior change, no ne
 
 ---
 
+## HC-001: remaining four families attacked — full 7/7 coverage reached, four clean
+
+`HC-001` (`ModuleRegistrationAttemptRecord.attempt_hash` detects any field tampering) already carried three findings from earlier in this campaign — Substitution and Omission (both found→documented: `manifest_hash` is a mismatched-implementation-collision risk, and can be entirely absent by design) and Semantic Inflation (found→documented: compound risk with `GAP-005`). The remaining four families — Orphan, Asymmetry, Duplication, Boundary Crossing — had never been attacked. Traced each against real source rather than assumed clean by default:
+
+- **Boundary Crossing — clean, on existing evidence, not fresh tracing.** `ModuleRegistrationAttemptRecord` has no `generation_id` field (confirmed directly against `module_registration_audit.py`), and `SE-002`'s own boundary note already establishes this record type has no historical schema variants either. Neither the generation-boundary bugs Checks 1/2 originally had, nor the schema-boundary risk `historical_verification.py`/`VP-001` covers, has a foothold here — the dimensions those attacks exploit elsewhere don't exist on this record type at all.
+- **Asymmetry — clean, traced through all three layers.** The concrete question: is `attempt_hash` re-verified independently on read, or only trusted as computed on write? Traced `module_registration_audit.py` (`attempt_hash: bytes = field(init=False)` — not a constructor parameter, always recomputed in `__post_init__`), `module_registration_audit_persistence.py` (`record_to_json()` never writes `attempt_hash` to the JSON payload at all — there is no stored value for a read path to trust instead of recomputing), and `module_registration_audit_log.py` (`read_all_records()` routes every line through `record_from_json()`, no shortcut, no separate parsing path). The write/read asymmetry this attack looks for structurally cannot exist here, because only the recompute side of that asymmetry exists in the first place — a stronger result than "read-side re-verification exists," since there is no alternative path to have skipped it.
+- **Duplication — clean.** `read_all_records()` returns a strict ordered list with no deduplication or set-based collapsing. A duplicate record is simply two independently-tamper-evident entries; `HC-001`'s claim is about a single record's own internal consistency, not log-level uniqueness, so duplicate records don't threaten what the claim actually asserts.
+- **Orphan — clean, not a natural fit.** `HC-001` is a leaf claim — a single record type's own hash tamper-evidence — not a composition of other records the way `MB-004`'s candidate graph or `CH-003`'s cross-reference are. There is no edge structure here for an Orphan attack to target.
+
+**Classification:** `[attack result: survived ×4 / disposition: n/a]` for each of the four — no code change, no new test, no new documentation beyond this record of the trace itself.
+
+`HC-001` is now the second claim in this campaign (after `MB-004`) to reach full 7/7 family coverage: 3 found→documented (Substitution, Omission, Semantic Inflation), 4 clean (Orphan, Asymmetry, Duplication, Boundary Crossing).
+
+---
+
 ## Two additional findings, surfaced by applying Omission and Duplication to CH-004/CH-006
 
 Not requested, but a natural extension once the taxonomy existed — applying two of the seven families to the two directional checks just built.
@@ -462,7 +477,7 @@ One claim can take multiple attacks from different families; the useful unit of 
 | CH-003 (module identity cross-reference) | — | — | — | ✓ found→documented (`GAP-005`, schema-level) | — | — | — |
 | CH-002 (sequence ordering) | — | — | — | — | — | ✓ found→fixed (superseded an earlier premature clean verdict — see write-up) | — |
 | CH-004/CH-006 (policy provenance, both directions) | ✓ found→fixed | ✓ found→fixed | ✓ clean (`test_swapped_...`) | ✓ found→fixed (`checks_run`) | ✓ found→logged (evidence ceiling reached, stays logged) | ✓ clean (generation-mismatch tests) | — |
-| HC-001 (registration hash) | — | — | ✓ found→documented (binding can be entirely absent, not just collision-prone) | ✓ found→documented | — | — | ✓ found→documented (compound with `GAP-005`) |
+| HC-001 (registration hash) | ✓ clean (no composition structure — leaf claim, nothing for an edge to dangle from) | ✓ clean (write path never persists `attempt_hash` at all; read path always recomputes via the real constructor at every layer — traced through `module_registration_audit.py`, `module_registration_audit_persistence.py`, `module_registration_audit_log.py`) | ✓ found→documented (binding can be entirely absent, not just collision-prone) | ✓ found→documented | ✓ clean (log-level duplicates are independently tamper-evident entries; no dedup/collapse logic exists that the claim depends on) | ✓ clean (no `generation_id` on this record type by design; no historical schema variants either, per `SE-002`'s own boundary note) | ✓ found→documented (compound with `GAP-005`) |
 | HC-003 (audit hash) | — | — | — | ✓ clean (resolved 2026-08-07) | — | — | — |
 | MB-002 (segmentation) | — | — | — | ✓ clean | ✓ clean | ✓ clean (malformed transitions) | — |
 | MB-003 (cross-generation) | — | — | — | — | — | (this claim *is* a boundary-crossing theorem) | ✓ found→documented |
