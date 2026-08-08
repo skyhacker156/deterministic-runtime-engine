@@ -663,22 +663,63 @@ def _check_policy_decision_orphans(
 
     Join key is (sequence_id, generation_id) -- identical to Check 4's
     join key, walked in the opposite direction.
+
+    IDENTITY, NOT JUST KEY CO-OCCURRENCE (2026-08-08, PG-001's first
+    finding -- calibration attack against the provenance graph model
+    itself, distinct from the MB-004 campaign): the original version of
+    this check confirmed only that SOME DecisionRecord existed at
+    (sequence_id, generation_id) -- it never confirmed that DecisionRecord
+    was actually the one this PolicyDecisionRecord's policy_decision
+    describes. Check 4 (the reverse direction) already defends against
+    exactly this by requiring decision.decision_hash ==
+    p.policy_decision.decision_hash among same-key candidates before
+    accepting a match; this check had no equivalent second condition.
+    Confirmed via direct construction and execution: a genuine
+    DecisionRecord for module_B and a genuine PolicyDecisionRecord whose
+    policy_decision is for module_A, sharing only (sequence_id,
+    generation_id), previously passed this check with zero failures
+    reported, despite concerning two different modules with two
+    different decision_hash values. Fixed by requiring decision_hash
+    equality among same-key candidates, mirroring Check 4's own pattern
+    exactly -- the fix makes the two checks symmetric in what they
+    actually verify, not just in which direction they walk.
     """
     failures: List[str] = []
 
-    decision_keys = {
-        (d.sequence_id, d.generation_id) for d in decision_records
-    }
+    decisions_by_key: Dict[Tuple[int, bytes], List] = {}
+    for d in decision_records:
+        key = (d.sequence_id, d.generation_id)
+        decisions_by_key.setdefault(key, []).append(d)
 
     for policy_decision in policy_decision_records:
         key = (policy_decision.sequence_id, policy_decision.generation_id)
-        if key not in decision_keys:
+        candidates = decisions_by_key.get(key, [])
+
+        if not candidates:
             failures.append(
                 f"Policy decision orphan: PolicyDecisionRecord "
                 f"(sequence_id={policy_decision.sequence_id}, "
                 f"generation_id={policy_decision.generation_id.hex()}) has no "
                 f"corresponding DecisionRecord at all -- this policy decision "
                 f"was never acted on, or was fabricated."
+            )
+            continue
+
+        matching_hash_found = any(
+            d.decision_hash == policy_decision.policy_decision.decision_hash
+            for d in candidates
+        )
+        if not matching_hash_found:
+            failures.append(
+                f"Policy decision orphan: PolicyDecisionRecord "
+                f"(sequence_id={policy_decision.sequence_id}, "
+                f"generation_id={policy_decision.generation_id.hex()}) has a "
+                f"DecisionRecord at the same (sequence_id, generation_id), but "
+                f"none of them share this policy decision's decision_hash -- "
+                f"this policy decision does not correspond to any real "
+                f"decision at this key, even though the key itself is "
+                f"occupied by other decisions. A different module's decision "
+                f"cannot satisfy a policy decision that isn't actually its own."
             )
 
     return failures

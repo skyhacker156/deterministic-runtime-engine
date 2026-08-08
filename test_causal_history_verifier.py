@@ -672,6 +672,97 @@ def test_orphan_check_does_not_false_positive_on_correlated_records(three_log_pa
     assert report.passed is True
     assert not any("orphan" in f.lower() for f in report.failures)
 
+# ---------------------------------------------------------------------
+# 8b. Check 5 -- identity, not just key co-occurrence (second PG-001
+#     finding, 2026-08-08: distinct from the true-orphan attack above)
+# ---------------------------------------------------------------------
+
+def test_orphan_check_rejects_a_different_modules_decision_at_the_same_key(three_log_paths):
+    """
+    PG-001's second finding (2026-08-08), found via calibration attack
+    against the provenance graph model itself, distinct from the
+    MB-004 campaign. Check 5's original version confirmed only that
+    SOME DecisionRecord existed at (sequence_id, generation_id) -- it
+    never confirmed that DecisionRecord was actually the one this
+    PolicyDecisionRecord's policy_decision describes. Confirmed via
+    direct construction and execution before this fix: a genuine
+    DecisionRecord for one module and a genuine PolicyDecisionRecord
+    for a COMPLETELY DIFFERENT module, sharing only (sequence_id,
+    generation_id), previously passed Check 5 with zero failures --
+    despite different modules and different decision_hash values.
+    Check 4 (the reverse direction) already defended against exactly
+    this via decision_hash equality; Check 5 had no equivalent
+    condition until this fix.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("module_A")
+    )
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("module_B")
+    )
+
+    # A real, valid DecisionRecord for module_B.
+    decision_for_module_b = DecisionRecord(
+        sequence_id=5,
+        module_id="module_B",
+        allowed=True,
+        decision_hash=_hash32(b"unrelated_decision_for_B"),
+        generation_id=_GEN_ID,
+    )
+    append_decision_record(three_log_paths["decision"], decision_for_module_b)
+    append_audit_record(three_log_paths["audit"], _make_audit(5, "module_B"))
+
+    # A real, valid PolicyDecisionRecord for module_A -- a completely
+    # different module -- sharing only (sequence_id=5, generation_id).
+    policy_decision_for_module_a = _make_policy_decision("module_A")
+    policy_record_for_module_a = PolicyDecisionRecord(
+        sequence_id=5, generation_id=_GEN_ID, policy_decision=policy_decision_for_module_a,
+    )
+    append_policy_decision_record(three_log_paths["policy_decision"], policy_record_for_module_a)
+
+    # sanity: these two records really do disagree
+    assert decision_for_module_b.module_id != policy_decision_for_module_a.module_id
+    assert decision_for_module_b.decision_hash != policy_decision_for_module_a.decision_hash
+
+    report = verify_causal_history(
+        three_log_paths["registration"],
+        three_log_paths["decision"],
+        three_log_paths["audit"],
+        policy_decision_log_path=three_log_paths["policy_decision"],
+    )
+
+    assert report.passed is False
+    assert any(
+        "does not correspond to any real decision at this key" in f
+        for f in report.failures
+    )
+
+
+def test_orphan_check_still_passes_clean_on_genuinely_correlated_pair_after_identity_fix(three_log_paths):
+    """
+    Regression guard for the identity fix above: a genuinely correlated
+    pair (same module, matching decision_hash, via the established
+    _make_correlated_decision_and_policy_record() helper) must still
+    pass clean -- the identity fix must not turn every real, legitimate
+    pair into a false positive.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("phoenix_a_core_v1")
+    )
+    decision, policy_record = _make_correlated_decision_and_policy_record(1, "phoenix_a_core_v1")
+    append_decision_record(three_log_paths["decision"], decision)
+    append_policy_decision_record(three_log_paths["policy_decision"], policy_record)
+    append_audit_record(three_log_paths["audit"], _make_audit(1, "phoenix_a_core_v1"))
+
+    report = verify_causal_history(
+        three_log_paths["registration"],
+        three_log_paths["decision"],
+        three_log_paths["audit"],
+        policy_decision_log_path=three_log_paths["policy_decision"],
+    )
+
+    assert report.passed is True
+
 
 # ---------------------------------------------------------------------
 # 9. Check 6 -- decision execution completeness (reverse of Check 1)
