@@ -518,6 +518,34 @@ Not requested, but a natural extension once the taxonomy existed — applying tw
 
 ---
 
+## CB-001: `reconstruction_valid`'s scope was understated — a distinct finding class, not another seven-family campaign
+
+Selected via a disciplined matrix-level candidate selection pass (not a default next-in-line pick) after four claims — `MB-004`, `HC-001`, `HC-003`, `PG-001` — reached genuine full 7/7 coverage. Ranked against six criteria (cross-object coupling, claim strength, consequence if false, sparse coverage, independence from the four closed campaigns, quality of executable evidence): `CB-001` (cold boot reconstruction — registration, authorization, and execution histories reconstructed from disk alone, "verified ordering and causal relationships") scored highest on every criterion, ahead of `CH-007` (strong second, but adjacent to `CH-001`/`PG-001`'s already-heavily-attacked territory) and `CH-008`.
+
+**Deliberately not a seven-family sweep.** `cold_boot_reconstruction.py` is, by its own docstring, "an assembly of already-proven pieces... not new capability" — most of its substantive correctness is `verify_causal_history()`'s job, already attacked exhaustively via `PG-001`. Running the same seven attacks again against the same underlying checks would mostly re-test already-covered ground. Instead: a narrow, intent-focused investigation into a specific, precisely-stated question, matching `VP-001`'s own precedent for a finding that doesn't fit the family taxonomy.
+
+**The question:** does `COLD_BOOT_RECONSTRUCTION_CONTRACT.md` — which calls itself "the authoritative specification for what cold-boot reconstruction can and cannot claim" — accurately describe what `reconstruction_valid` actually depends on?
+
+**Five-step trace, each step against real source, not assumed:**
+1. `reconstruct_cold_boot()`'s body: `causal_report = verify_causal_history(...)` stored whole into the result, unfiltered.
+2. `reconstruction_valid`'s definition: `return self.causal_report.passed` — a direct one-line passthrough.
+3. `passed`'s definition, confirmed directly from the `CausalHistoryReport` class: `return len(self.failures) == 0`, over one flat, uncategorized `failures: List[str]`.
+4. The contract's own `SHALL 4` text: named exactly two checks, and stated explicitly — *"No other cross-artifact relationship is currently verified, and none should be assumed to exist."* The term `reconstruction_valid` was never used anywhere in the document at all.
+5. Whether the architecture anywhere distinguishes "core `CB-001` evidence" from "additional verifier safeguards": confirmed, from the class definition's own docstring, that it does not — `passed` depends on "every check that actually ran," unconditionally.
+
+Since no such two-layer distinction exists anywhere in the real architecture, the contract's `SHALL 4` — not the code — was the inaccurate side of the divergence: this reads as one verifier whose scope grew through genuine, deliberate additions (Checks 6 and 7, both added in later work for real reasons, per `CH-001`'s and `CH-007`'s own findings) with this specific document never revisited, the same "governing document written before a later check existed" shape already seen twice this session (`PG-001`'s Third finding; `CH-002`'s original bug).
+
+**Two isolated adversarial constructions, executed, not merely traced, confirming Checks 6 and 7 as genuine `reconstruction_valid` prerequisites:**
+
+- **Check 6 (decision-execution-completeness) isolated:** two genuinely allowed `DecisionRecord`s for one registered module — sequence 1 (not trailing, no audit) and sequence 2 (trailing, with a matching audit). Ran the real, unmodified `reconstruct_cold_boot()` calling the real, unmodified `verify_causal_history()`, only the disk-read functions substituted for direct in-memory objects (the same narrow substitution as `PG-001`'s own Omission finding). Result: exactly one failure, Check 6's, naming sequence 1's missing audit explicitly; both `SHALL 4`-named checks confirmed clean by inspecting the actual failure list; `reconstruction_valid` was `False`.
+- **Check 7 (no-contradictory-decisions) isolated:** one registered module, two `DecisionRecord`s sharing the exact same `(sequence_id, module_id, generation_id)` key — one allowed, one denied — no audit records at all, deliberately avoiding any Check 1 interaction. Result: exactly one failure, Check 7's contradictory-decision message; Check 6 confirmed *not* firing (the allowed decision's trailing exemption applied cleanly, ruling out cross-contamination between the two attacks); both `SHALL 4`-named checks again confirmed clean; `reconstruction_valid` was `False`.
+
+**Disposition: `COLD_BOOT_RECONSTRUCTION_CONTRACT.md`'s `SHALL 4` corrected** — now enumerates all six checks that run unconditionally when `reconstruct_cold_boot()` is called, explicitly split into genuine cross-artifact relationships (decision→audit ancestry, module identity, decision-execution-completeness) versus per-log invariants (sequence ordering, no-contradictory-decisions), with the original text preserved verbatim for the historical record. No code changed — nothing about `causal_history_verifier.py` or `cold_boot_reconstruction.py`'s actual behavior was wrong; the correction is entirely to the document describing that behavior. **[finding: claim-boundary / semantic-inflation issue / disposition: documented limitation]**.
+
+**Why this finding is a different kind of result than anything else this campaign has produced:** every prior finding — `MB-004`'s Substitution, `PG-001`'s Check 5 identity gap, `HC-001`'s `manifest_hash` boundary — was about whether a check correctly validates the data it's given. This one is about whether the document *describing what the verification system verifies* keeps pace with the verification system itself. Not a hash bug, not a join-key bug — a test of whether the specification remains an accurate map of the territory as the territory grows.
+
+---
+
 ## Attack campaigns, not "the next N attacks"
 
 One claim can take multiple attacks from different families; the useful unit of coverage is the (claim, family) pair, not a flat attack count. First-pass coverage matrix — **not exhaustive by design**, populated only with what's actually been run:
