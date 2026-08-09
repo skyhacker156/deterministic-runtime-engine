@@ -1095,3 +1095,52 @@ def test_checks_run_includes_both_optional_checks_when_policy_log_supplied(three
         "policy_decision_provenance",
         "policy_decision_orphans",
     })
+
+def test_ambiguous_max_sequence_id_denies_the_trailing_exemption_to_both(three_log_paths):
+    """
+    Finding #1, CH-007's own seven-family campaign (2026-08-09), Duplication
+    family. The trailing-crash exemption previously compared each decision's
+    own sequence_id against the group's maximum value only -- it never asked
+    whether that maximum was uniquely held. Two allowed decisions sharing
+    the maximum sequence_id -- one genuinely missing its audit, one an
+    arbitrary duplicate at the same value -- both received the exemption,
+    since both satisfied "sequence_id == max" identically. Confirmed by
+    direct construction and execution before this fix: this exact scenario
+    produced zero failures across the entire pipeline, not just this check.
+
+    Fixed: the exemption now requires the maximum sequence_id to be
+    uniquely occupied by exactly one allowed decision. When two or more
+    decisions share it, none are exempt -- each is checked individually
+    against the audit log like any other decision.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("module_A")
+    )
+
+    decision_a = _make_decision(sequence_id=1, module_id="module_A", hash_seed=b"a")
+    decision_b_incomplete = _make_decision(
+        sequence_id=2, module_id="module_A", hash_seed=b"b_incomplete"
+    )
+    decision_b_twin = _make_decision(
+        sequence_id=2, module_id="module_A", hash_seed=b"b_twin"
+    )
+    append_decision_record(three_log_paths["decision"], decision_a)
+    append_decision_record(three_log_paths["decision"], decision_b_incomplete)
+    append_decision_record(three_log_paths["decision"], decision_b_twin)
+
+    append_audit_record(
+        three_log_paths["audit"], _make_audit(sequence_id=1, module_id="module_A")
+    )
+
+    report = verify_causal_history(
+        three_log_paths["registration"],
+        three_log_paths["decision"],
+        three_log_paths["audit"],
+    )
+
+    assert report.passed is False
+    matching_failures = [
+        f for f in report.failures
+        if "sequence_id=2" in f and "shares its sequence_id with" in f
+    ]
+    assert len(matching_failures) == 2

@@ -391,20 +391,53 @@ def _check_decision_execution_completeness(decision_records, audit_records) -> L
     for (module_id, generation_id), decisions in allowed_by_module_generation.items():
         decisions_sorted = sorted(decisions, key=lambda d: d.sequence_id)
         last_sequence_id = decisions_sorted[-1].sequence_id
+        decisions_at_last = [d for d in decisions_sorted if d.sequence_id == last_sequence_id]
+        # UNIQUENESS-GATED EXEMPTION (2026-08-09, Finding #1, CH-007's own
+        # seven-family campaign, Duplication family): the trailing exemption
+        # is only trustworthy when exactly one allowed decision occupies the
+        # maximum sequence_id. Confirmed via direct adversarial construction
+        # and execution: two allowed decisions sharing that maximum value --
+        # one genuinely audited or irrelevant, one genuinely missing its
+        # audit -- previously caused BOTH to receive the exemption, since the
+        # original check only compared each decision's own sequence_id
+        # against the max value, never asking whether that value was
+        # uniquely held. A duplicate sequence_id at the maximum position
+        # cannot be trusted to identify which decision, if any, was
+        # legitimately last -- so when the maximum is ambiguous, NONE of the
+        # decisions occupying it are exempt; each is checked individually,
+        # the same as any other decision.
+        last_is_unique = len(decisions_at_last) == 1
 
         for d in decisions_sorted:
             key = (d.sequence_id, d.module_id, d.generation_id)
-            if key not in audit_keys and d.sequence_id != last_sequence_id:
+            if key in audit_keys:
+                continue
+            if d.sequence_id == last_sequence_id and last_is_unique:
+                continue  # genuine, unambiguous trailing exemption
+            if d.sequence_id == last_sequence_id and not last_is_unique:
                 failures.append(
                     f"Decision execution completeness: allowed decision "
                     f"(sequence_id={d.sequence_id}, module_id={d.module_id!r}, "
                     f"generation_id={d.generation_id.hex()}) has no corresponding "
-                    f"audit record, and LATER decisions exist for this "
-                    f"(module_id, generation_id) -- execution demonstrably "
-                    f"continued past this point, so this is not a legitimate "
-                    f"trailing crash. The audit record was silently skipped, "
-                    f"or the decision was fabricated."
+                    f"audit record, and shares its sequence_id with "
+                    f"{len(decisions_at_last) - 1} other allowed decision(s) at the "
+                    f"same (module_id, generation_id) -- the trailing-crash "
+                    f"exemption requires a single, unambiguous last decision. A "
+                    f"duplicate sequence_id at the maximum position cannot be "
+                    f"trusted to identify which decision, if any, was legitimately "
+                    f"last."
                 )
+                continue
+            failures.append(
+                f"Decision execution completeness: allowed decision "
+                f"(sequence_id={d.sequence_id}, module_id={d.module_id!r}, "
+                f"generation_id={d.generation_id.hex()}) has no corresponding "
+                f"audit record, and LATER decisions exist for this "
+                f"(module_id, generation_id) -- execution demonstrably "
+                f"continued past this point, so this is not a legitimate "
+                f"trailing crash. The audit record was silently skipped, "
+                f"or the decision was fabricated."
+            )
 
     return failures
 
