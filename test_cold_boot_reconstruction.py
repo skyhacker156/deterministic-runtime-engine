@@ -370,7 +370,77 @@ def test_full_clean_reconstruction_is_valid(three_log_paths):
     assert len(result.authorization_history) == 3
     assert len(result.execution_history) == 2
 
+# ---------------------------------------------------------------------
+# Snapshot identity: returned and verified histories cannot diverge
+# ---------------------------------------------------------------------
 
+def test_snapshot_identity_returned_and_verified_histories_cannot_diverge(
+    monkeypatch, three_log_paths
+):
+    """
+    Regression test for the Orphan/identity-of-evidence finding
+    (2026-08-09): before the fix, reconstruct_cold_boot() read each log
+    twice -- once directly, once inside verify_causal_history()'s own
+    independent re-read -- with nothing connecting the two reads. A
+    caller could receive a returned history of N records while
+    causal_report reflected verification of a DIFFERENT record set,
+    with reconstruction_valid=True and zero failures. Confirmed
+    concretely before this fix: 3 decision records returned, only 2
+    verified, reconstruction_valid reported True regardless.
+
+    This test confirms the fix structurally, not just behaviorally:
+    monkeypatching causal_history_verifier's own read_all_* functions
+    to return data DIFFERENT from what reconstruct_cold_boot() itself
+    reads has NO EFFECT on the result, because
+    verify_causal_history_from_records() -- what reconstruct_cold_boot()
+    now calls -- never invokes those functions at all. There is no
+    second read left to divert.
+    """
+    import causal_history_verifier as chv
+
+    append_registration_record(
+        three_log_paths["registration"],
+        ModuleRegistrationAttemptRecord(
+            module_id="phoenix_a_core_v1", attempted_at_ns=1000,
+            success=True, reason=None,
+        ),
+    )
+    append_decision_record(
+        three_log_paths["decision"],
+        DecisionRecord(sequence_id=1, module_id="phoenix_a_core_v1",
+                        allowed=False, decision_hash=_hash32(b"d1"),
+                        generation_id=_GEN_ID),
+    )
+    # three_log_paths only yields path strings -- it does not create the
+    # files. registration/decision were created above via append ("a"
+    # mode). audit is deliberately left with zero records for this test,
+    # but the file must still exist for _read_audit_log() to open it.
+    open(three_log_paths["audit"], "w").close()
+
+    # Attempt to divert the (now-nonexistent) second read to return
+    # empty data, genuinely different from what reconstruct_cold_boot()
+    # itself read above.
+    monkeypatch.setattr(chv, "read_all_registration_records", lambda path: [])
+    monkeypatch.setattr(chv, "read_all_decision_records", lambda path: [])
+    monkeypatch.setattr(chv, "read_all_audit_records", lambda path: [])
+
+    result = reconstruct_cold_boot(
+        three_log_paths["registration"],
+        three_log_paths["decision"],
+        three_log_paths["audit"],
+    )
+
+    # If a second, divertable read still existed, these counts would
+    # show 0 (from the monkeypatched functions) while the returned
+    # histories still showed 1 each -- a silent, undetected mismatch.
+    # With the fix, the monkeypatch has no effect at all: the counts
+    # must match the real, returned histories exactly, every time.
+    assert len(result.registration_history) == 1
+    assert result.causal_report.registration_record_count == 1
+    assert len(result.authorization_history) == 1
+    assert result.causal_report.decision_record_count == 1
+    assert len(result.execution_history) == 0
+    assert result.causal_report.audit_record_count == 0
 # ---------------------------------------------------------------------
 # Missing logs propagate as real errors
 # ---------------------------------------------------------------------

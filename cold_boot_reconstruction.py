@@ -40,7 +40,7 @@ from decision_record_contract import DecisionRecord
 from decision_record_log import read_all_decision_records as _read_decision_log
 from execution_audit_contract import ExecutionAuditRecord
 from execution_audit_log import read_all_audit_records as _read_audit_log
-from causal_history_verifier import verify_causal_history, CausalHistoryReport
+from causal_history_verifier import verify_causal_history_from_records, CausalHistoryReport
 
 
 @dataclass
@@ -99,13 +99,33 @@ def reconstruct_cold_boot(
     the underlying *LogCorruptionError if any log's content is
     malformed at the parse level -- this function does not paper over
     either, consistent with every log reader it's built on.
+
+    SNAPSHOT-IDENTITY FIX (2026-08-09) -- closes an Orphan/identity-of-
+    evidence finding, confirmed by direct adversarial construction and
+    execution: this function used to call verify_causal_history(path,
+    ...), which independently RE-READ each log from disk -- a second,
+    separate read from the one this function had already performed for
+    registration_history/authorization_history/execution_history above.
+    Nothing connected the two reads. A caller could receive a returned
+    history of N records while causal_report reflected verification of
+    a DIFFERENT record set, with reconstruction_valid reporting True
+    and zero failures -- a silently wrong "verified" claim over data
+    that was never actually checked, demonstrated concretely (3 records
+    returned, 2 verified, reconstruction_valid=True, zero failures,
+    before this fix).
+
+    Fixed by calling verify_causal_history_from_records() with the
+    EXACT record objects already read above, rather than re-reading via
+    paths -- true identity of evidence (the same objects), not merely
+    matching counts. See verify_causal_history_from_records()'s own
+    docstring in causal_history_verifier.py for the full account.
     """
     registration_history = _read_registration_log(registration_log_path)
     authorization_history = _read_decision_log(decision_log_path)
     execution_history = _read_audit_log(audit_log_path)
 
-    causal_report = verify_causal_history(
-        registration_log_path, decision_log_path, audit_log_path
+    causal_report = verify_causal_history_from_records(
+        registration_history, authorization_history, execution_history
     )
 
     return ColdBootReconstructionResult(

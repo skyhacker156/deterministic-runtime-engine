@@ -725,42 +725,50 @@ def _check_policy_decision_orphans(
     return failures
 
 
-def verify_causal_history(
-    registration_log_path: str,
-    decision_log_path: str,
-    audit_log_path: str,
-    policy_decision_log_path: Optional[str] = None,
+def verify_causal_history_from_records(
+    registration_records: List["ModuleRegistrationAttemptRecord"],
+    decision_records: List["DecisionRecord"],
+    audit_records: List["ExecutionAuditRecord"],
+    policy_decision_records: Optional[List["PolicyDecisionRecord"]] = None,
 ) -> CausalHistoryReport:
     """
-    Runs Checks 1-3 against the three original logs at the given paths,
-    always. Reads each log in full (via the already-proven read_all_*
-    functions from each log module) -- this function performs no writes
-    and touches no live runtime state.
+    Runs Checks 1-3 (and, if policy_decision_records is supplied,
+    Checks 4/5) against already-loaded records directly -- no reads of
+    any kind, no paths, no file I/O. This is the actual check-running
+    core; verify_causal_history() (below) is now a thin wrapper that
+    reads the three-or-four logs from disk and delegates here.
 
-    policy_decision_log_path (optional, added for Check 4): when
-    supplied, also reads the policy decision log and runs Check 4
-    (policy decision provenance). When omitted (the default), behavior
-    is IDENTICAL to before Check 4 existed -- every existing caller
-    (test_causal_history_verifier.py, cold_boot_reconstruction.py, the
-    embedded subprocess script in test_verifier_runtime_isolation.py)
-    continues to work completely unchanged, and
-    CausalHistoryReport.policy_decision_record_count stays None rather
-    than silently claiming a check ran that didn't.
+    EXTRACTED 2026-08-09 -- closes an Orphan/identity-of-evidence
+    finding against cold_boot_reconstruction.py, a distinct claim
+    (CB-001) built on top of this module, not a defect in this
+    module's own behavior. Before this extraction,
+    cold_boot_reconstruction.py's reconstruct_cold_boot() called this
+    module's own verify_causal_history(path, ...), which independently
+    RE-READ each log from disk -- a second, entirely separate read from
+    the one reconstruct_cold_boot() had already performed for its own
+    returned histories. Nothing connected the two reads: confirmed by
+    direct adversarial construction and execution (monkeypatching the
+    two read paths to return genuinely different record sets) that
+    reconstruct_cold_boot() could return a history of 3 records while
+    causal_report reflects verification of only 2 of them, with
+    reconstruction_valid reporting True and zero failures -- a
+    caller-visible, silently wrong "verified" claim over data that was
+    never actually checked. `causal_report.decision_record_count`
+    (etc.) already differed from the returned history's length in this
+    scenario, so the inconsistency WAS discoverable in principle -- but
+    nothing enforced a caller ever checking it, and reconstruction_valid
+    itself gave no warning.
 
-    Propagates FileNotFoundError if any log path doesn't exist, and
-    the log module's own *LogCorruptionError if any log's content is
-    malformed -- those are real failures this function does not
-    attempt to paper over or treat as "zero records." This applies to
-    policy_decision_log_path too, when supplied.
+    This function exists so a caller that has already loaded records
+    once (specifically: reconstruct_cold_boot()) can pass those EXACT
+    objects in for verification, giving the returned reconstruction and
+    the verification result true identity of evidence -- not merely
+    matching counts, the same record objects -- rather than asking two
+    independent reads to agree. verify_causal_history()'s own behavior,
+    signature, and every existing caller are completely unchanged by
+    this extraction; this is a pure refactor of where the check-running
+    logic lives, not a behavior change for path-based callers.
     """
-    registration_records = read_all_registration_records(registration_log_path)
-    decision_records = read_all_decision_records(decision_log_path)
-    audit_records = read_all_audit_records(audit_log_path)
-
-    policy_decision_records = None
-    if policy_decision_log_path is not None:
-        policy_decision_records = read_all_policy_decision_records(policy_decision_log_path)
-
     failures: List[str] = []
     checks_run: set = set()
 
@@ -799,4 +807,51 @@ def verify_causal_history(
         ),
         failures=failures,
         checks_run=frozenset(checks_run),
+    )
+
+
+def verify_causal_history(
+    registration_log_path: str,
+    decision_log_path: str,
+    audit_log_path: str,
+    policy_decision_log_path: Optional[str] = None,
+) -> CausalHistoryReport:
+    """
+    Runs Checks 1-3 against the three original logs at the given paths,
+    always. Reads each log in full (via the already-proven read_all_*
+    functions from each log module) -- this function performs no writes
+    and touches no live runtime state.
+
+    policy_decision_log_path (optional, added for Check 4): when
+    supplied, also reads the policy decision log and runs Check 4
+    (policy decision provenance). When omitted (the default), behavior
+    is IDENTICAL to before Check 4 existed -- every existing caller
+    (test_causal_history_verifier.py, the embedded subprocess script in
+    test_verifier_runtime_isolation.py) continues to work completely
+    unchanged, and CausalHistoryReport.policy_decision_record_count
+    stays None rather than silently claiming a check ran that didn't.
+
+    Propagates FileNotFoundError if any log path doesn't exist, and
+    the log module's own *LogCorruptionError if any log's content is
+    malformed -- those are real failures this function does not
+    attempt to paper over or treat as "zero records." This applies to
+    policy_decision_log_path too, when supplied.
+
+    2026-08-09: this function's own reads and checks are unchanged by
+    the verify_causal_history_from_records() extraction above -- it now
+    delegates its check-running core there, but still performs its own
+    independent reads exactly as before. `cold_boot_reconstruction.py`
+    no longer calls this function -- see
+    verify_causal_history_from_records()'s own docstring for why.
+    """
+    registration_records = read_all_registration_records(registration_log_path)
+    decision_records = read_all_decision_records(decision_log_path)
+    audit_records = read_all_audit_records(audit_log_path)
+
+    policy_decision_records = None
+    if policy_decision_log_path is not None:
+        policy_decision_records = read_all_policy_decision_records(policy_decision_log_path)
+
+    return verify_causal_history_from_records(
+        registration_records, decision_records, audit_records, policy_decision_records
     )
