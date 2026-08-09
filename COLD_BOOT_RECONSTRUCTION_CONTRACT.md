@@ -227,6 +227,24 @@ Both executions ran the real, unmodified `reconstruct_cold_boot()` calling the r
 
 ---
 
+## Finding: snapshot identity — returned histories could diverge from what was actually verified (resolved 2026-08-09)
+
+**Status: RESOLVED — a real implementation defect, fixed.** Found during `CB-001`'s subsequent full seven-family campaign (begun only after the finding above was fully synchronized across this contract, `VERIFICATION_COVERAGE_MATRIX.md`, and `ADVERSARIAL_METHODOLOGY.md`, per this project's own sequencing discipline). Unlike the finding above, this is not a documentation gap — the implementation itself was wrong.
+
+**The defect:** `reconstruct_cold_boot()` read each of the three logs *twice* — once directly, to build the returned `registration_history`/`authorization_history`/`execution_history`, and a second, entirely independent time inside `verify_causal_history()`'s own internal re-read of the same paths. Nothing connected the two reads. Confirmed by direct adversarial construction and execution (not merely traced): monkeypatching the second read to return a genuinely different record set than the first produced `authorization_history` containing 3 records while `causal_report` reflected verification of only 2 of them — `reconstruction_valid` reporting `True`, zero failures, over data that was never actually checked. A discoverable signal existed (`len(authorization_history)` vs. `causal_report.decision_record_count` disagreeing), but nothing in `reconstruct_cold_boot()` itself enforced a caller ever comparing them.
+
+**Why this is a defect regardless of the underlying files being static in ordinary use, not merely a concurrency edge case:** the architecture asks two independent reads to represent the same evidence, with no invariant connecting them — this holds even in a completely static filesystem, since nothing about the *design* depends on concurrency to be unsound. Static files are an environmental assumption this contract's scope already states; they were never an explicit invariant *linking* the two reads to each other.
+
+**Fix: single-read, shared-snapshot semantics — true identity of evidence, not count comparison.** `causal_history_verifier.py`'s check-running core was extracted into a new function, `verify_causal_history_from_records()`, which accepts already-loaded record objects directly and performs no file I/O of its own. The existing path-based `verify_causal_history()` becomes a thin wrapper delegating to it — confirmed by direct execution that its behavior, signature, and every existing caller (`test_causal_history_verifier.py`, `test_verifier_runtime_isolation.py`'s embedded subprocess script) are completely unaffected. `reconstruct_cold_boot()` now calls `verify_causal_history_from_records()` with the *exact* record objects it already read once for the returned histories — the same objects, not merely matching counts. Confirmed the fix closes the class of defect, not just this instance: re-running the identical adversarial monkeypatch against the fixed code has zero effect, since there is no longer a second, divertable read to target.
+
+**Classification and disposition:** `[finding: implementation defect / disposition: fixed + regression]`. Regression test: `test_snapshot_identity_returned_and_verified_histories_cannot_diverge`, confirming the monkeypatch has no effect and every returned-history length structurally equals its corresponding `causal_report` count. Full suite: 473/473.
+
+**Asymmetry, traced as part of the same campaign and found to have no meaningful attack surface at this composition layer:** every candidate directional relationship considered (registration-to-reference cross-checking, the three returned histories against what gets verified, hash-consistency's own within-record derivation, the new records-based entry point's narrower input validation relative to the path-based wrapper) either duplicates ground `PG-001` already covered exhaustively for the underlying checks, or does not fit this family's actual shape (a directional A-checked-against-B relationship). `cold_boot_reconstruction.py` introduces no new cross-record relationship of its own — consistent with its own docstring describing itself as "an assembly of already-proven pieces... not new capability." `[attack result: n/a / disposition: n/a]`.
+
+`CB-001`'s adversarial campaign is now complete across all seven families: Substitution, Duplication, and Boundary Crossing clean and directly executed; Orphan found and fixed (above); Semantic Inflation cross-referenced with the Orphan finding (the same root cause, not a separate result); Omission covered by the earlier claim-boundary synchronization finding; Asymmetry n/a with the reasoning stated above.
+
+---
+
 ## Canonical Replay Verification (extension — opt-in, different isolation posture)
 
 This section governs `kernel_state_replay.py` and anything built on
