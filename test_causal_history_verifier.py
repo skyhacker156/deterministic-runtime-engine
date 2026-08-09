@@ -1144,3 +1144,79 @@ def test_ambiguous_max_sequence_id_denies_the_trailing_exemption_to_both(three_l
         if "sequence_id=2" in f and "shares its sequence_id with" in f
     ]
     assert len(matching_failures) == 2
+
+def test_denied_decision_at_later_sequence_id_counts_as_evidence_of_continuation(three_log_paths):
+    """
+    Finding #2, CH-007's own seven-family campaign (2026-08-09), Omission
+    family. The original grouping filtered to `if d.allowed` before "last"
+    was ever computed -- a DENIED decision at a later sequence_id (real
+    evidence the engine reached that later frame's authorization step,
+    which requires the earlier frame to have already resolved) was
+    invisible to the exemption logic entirely. Confirmed by direct
+    construction and execution before this fix: a single allowed decision
+    with no audit, followed only by a denied decision at the next
+    sequence_id, passed with zero failures across the whole pipeline.
+
+    Fixed: "evidence of continuation" is now computed over ALL decisions
+    at a (module_id, generation_id), not just allowed ones. A denied
+    decision never itself needs an audit and is never flagged -- but its
+    existence at a later position now correctly denies the trailing
+    exemption to an earlier, genuinely incomplete allowed decision.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("module_A")
+    )
+
+    decision_incomplete = _make_decision(
+        sequence_id=1, module_id="module_A", allowed=True, hash_seed=b"a"
+    )
+    decision_denied = _make_decision(
+        sequence_id=2, module_id="module_A", allowed=False, hash_seed=b"b"
+    )
+    append_decision_record(three_log_paths["decision"], decision_incomplete)
+    append_decision_record(three_log_paths["decision"], decision_denied)
+    # three_log_paths only yields path strings -- the audit file must
+    # still exist (even empty) for read_all_audit_records() to open it.
+    open(three_log_paths["audit"], "w").close()
+
+    report = verify_causal_history(
+        three_log_paths["registration"],
+        three_log_paths["decision"],
+        three_log_paths["audit"],
+    )
+
+    assert report.passed is False
+    assert any(
+        "sequence_id=1" in f and "LATER decisions exist" in f
+        for f in report.failures
+    )
+
+
+def test_denied_decision_before_a_genuine_trailing_crash_is_not_a_false_positive(three_log_paths):
+    """
+    Regression guard for Finding #2's fix: a denied decision at an
+    EARLIER position than a genuinely-last, unaudited allowed decision
+    must not cause a false positive -- only a LATER decision (of any
+    kind) counts as evidence of continuation.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("module_A")
+    )
+
+    decision_denied_early = _make_decision(
+        sequence_id=1, module_id="module_A", allowed=False, hash_seed=b"a"
+    )
+    decision_trailing_crash = _make_decision(
+        sequence_id=2, module_id="module_A", allowed=True, hash_seed=b"b"
+    )
+    append_decision_record(three_log_paths["decision"], decision_denied_early)
+    append_decision_record(three_log_paths["decision"], decision_trailing_crash)
+    open(three_log_paths["audit"], "w").close()
+
+    report = verify_causal_history(
+        three_log_paths["registration"],
+        three_log_paths["decision"],
+        three_log_paths["audit"],
+    )
+
+    assert report.passed is True

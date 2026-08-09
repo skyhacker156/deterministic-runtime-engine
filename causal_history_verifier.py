@@ -379,9 +379,11 @@ def _check_decision_execution_completeness(decision_records, audit_records) -> L
     failures: List[str] = []
 
     allowed_by_module_generation: dict = {}
+    all_by_module_generation: dict = {}
     for d in decision_records:
+        key = (d.module_id, d.generation_id)
+        all_by_module_generation.setdefault(key, []).append(d)
         if d.allowed:
-            key = (d.module_id, d.generation_id)
             allowed_by_module_generation.setdefault(key, []).append(d)
 
     audit_keys = {
@@ -390,38 +392,50 @@ def _check_decision_execution_completeness(decision_records, audit_records) -> L
 
     for (module_id, generation_id), decisions in allowed_by_module_generation.items():
         decisions_sorted = sorted(decisions, key=lambda d: d.sequence_id)
-        last_sequence_id = decisions_sorted[-1].sequence_id
-        decisions_at_last = [d for d in decisions_sorted if d.sequence_id == last_sequence_id]
-        # UNIQUENESS-GATED EXEMPTION (2026-08-09, Finding #1, CH-007's own
-        # seven-family campaign, Duplication family): the trailing exemption
-        # is only trustworthy when exactly one allowed decision occupies the
-        # maximum sequence_id. Confirmed via direct adversarial construction
-        # and execution: two allowed decisions sharing that maximum value --
-        # one genuinely audited or irrelevant, one genuinely missing its
-        # audit -- previously caused BOTH to receive the exemption, since the
-        # original check only compared each decision's own sequence_id
-        # against the max value, never asking whether that value was
-        # uniquely held. A duplicate sequence_id at the maximum position
-        # cannot be trusted to identify which decision, if any, was
-        # legitimately last -- so when the maximum is ambiguous, NONE of the
-        # decisions occupying it are exempt; each is checked individually,
-        # the same as any other decision.
-        last_is_unique = len(decisions_at_last) == 1
+
+        # EVIDENCE-OF-CONTINUATION NOW SPANS ALL DECISIONS, NOT JUST ALLOWED
+        # ONES (2026-08-09, Finding #2, CH-007's own seven-family campaign,
+        # Omission family). Confirmed via direct adversarial construction
+        # and execution: a single allowed decision with no audit, followed
+        # by a DENIED decision at a later sequence_id, previously passed
+        # with zero failures -- the original grouping filtered to
+        # `if d.allowed` before "last" was ever computed, so the denied
+        # decision (real evidence the engine reached a later frame's
+        # authorization step, which requires the earlier frame to have
+        # already resolved) was invisible to the exemption logic entirely.
+        # A denied decision is not itself missing anything -- denied
+        # decisions never need an audit, and this loop still only ever
+        # iterates over allowed decisions below -- but its mere existence
+        # at a later position is the same kind of proof-of-continuation a
+        # later allowed decision already provided, and omitting it from
+        # "what counts as after me" was the actual gap.
+        all_decisions_here = all_by_module_generation[(module_id, generation_id)]
+        true_last_sequence_id = max(d.sequence_id for d in all_decisions_here)
+
+        decisions_at_true_last = [
+            d for d in decisions_sorted if d.sequence_id == true_last_sequence_id
+        ]
+        # If the true last position belongs to a denied decision only,
+        # decisions_at_true_last is empty here (decisions_sorted is the
+        # allowed-only view) -- len(...) == 1 is then False, correctly
+        # denying the exemption to every allowed decision in this group,
+        # since none of them is genuinely the last decision of any kind.
+        last_is_unique = len(decisions_at_true_last) == 1
 
         for d in decisions_sorted:
             key = (d.sequence_id, d.module_id, d.generation_id)
             if key in audit_keys:
                 continue
-            if d.sequence_id == last_sequence_id and last_is_unique:
+            if d.sequence_id == true_last_sequence_id and last_is_unique:
                 continue  # genuine, unambiguous trailing exemption
-            if d.sequence_id == last_sequence_id and not last_is_unique:
+            if d.sequence_id == true_last_sequence_id and not last_is_unique:
                 failures.append(
                     f"Decision execution completeness: allowed decision "
                     f"(sequence_id={d.sequence_id}, module_id={d.module_id!r}, "
                     f"generation_id={d.generation_id.hex()}) has no corresponding "
                     f"audit record, and shares its sequence_id with "
-                    f"{len(decisions_at_last) - 1} other allowed decision(s) at the "
-                    f"same (module_id, generation_id) -- the trailing-crash "
+                    f"{len(decisions_at_true_last) - 1} other allowed decision(s) at "
+                    f"the same (module_id, generation_id) -- the trailing-crash "
                     f"exemption requires a single, unambiguous last decision. A "
                     f"duplicate sequence_id at the maximum position cannot be "
                     f"trusted to identify which decision, if any, was legitimately "
@@ -888,3 +902,75 @@ def verify_causal_history(
     return verify_causal_history_from_records(
         registration_records, decision_records, audit_records, policy_decision_records
     )
+
+def test_denied_decision_at_later_sequence_id_counts_as_evidence_of_continuation(three_log_paths):
+    """
+    Finding #2, CH-007's own seven-family campaign (2026-08-09), Omission
+    family. The original grouping filtered to `if d.allowed` before "last"
+    was ever computed -- a DENIED decision at a later sequence_id (real
+    evidence the engine reached that later frame's authorization step,
+    which requires the earlier frame to have already resolved) was
+    invisible to the exemption logic entirely. Confirmed by direct
+    construction and execution before this fix: a single allowed decision
+    with no audit, followed only by a denied decision at the next
+    sequence_id, passed with zero failures across the whole pipeline.
+
+    Fixed: "evidence of continuation" is now computed over ALL decisions
+    at a (module_id, generation_id), not just allowed ones. A denied
+    decision never itself needs an audit and is never flagged -- but its
+    existence at a later position now correctly denies the trailing
+    exemption to an earlier, genuinely incomplete allowed decision.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("module_A")
+    )
+
+    decision_incomplete = _make_decision(
+        sequence_id=1, module_id="module_A", allowed=True, hash_seed=b"a"
+    )
+    decision_denied = _make_decision(
+        sequence_id=2, module_id="module_A", allowed=False, hash_seed=b"b"
+    )
+    append_decision_record(three_log_paths["decision"], decision_incomplete)
+    append_decision_record(three_log_paths["decision"], decision_denied)
+
+    report = verify_causal_history(
+        three_log_paths["registration"],
+        three_log_paths["decision"],
+        three_log_paths["audit"],
+    )
+
+    assert report.passed is False
+    assert any(
+        "sequence_id=1" in f and "LATER decisions exist" in f
+        for f in report.failures
+    )
+
+
+def test_denied_decision_before_a_genuine_trailing_crash_is_not_a_false_positive(three_log_paths):
+    """
+    Regression guard for Finding #2's fix: a denied decision at an
+    EARLIER position than a genuinely-last, unaudited allowed decision
+    must not cause a false positive -- only a LATER decision (of any
+    kind) counts as evidence of continuation.
+    """
+    append_registration_record(
+        three_log_paths["registration"], _make_registration("module_A")
+    )
+
+    decision_denied_early = _make_decision(
+        sequence_id=1, module_id="module_A", allowed=False, hash_seed=b"a"
+    )
+    decision_trailing_crash = _make_decision(
+        sequence_id=2, module_id="module_A", allowed=True, hash_seed=b"b"
+    )
+    append_decision_record(three_log_paths["decision"], decision_denied_early)
+    append_decision_record(three_log_paths["decision"], decision_trailing_crash)
+
+    report = verify_causal_history(
+        three_log_paths["registration"],
+        three_log_paths["decision"],
+        three_log_paths["audit"],
+    )
+
+    assert report.passed is True
