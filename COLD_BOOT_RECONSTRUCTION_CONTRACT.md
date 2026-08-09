@@ -48,18 +48,22 @@ smuggled into a SHALL clause.
    Evidence: `causal_history_verifier.py` Check 2,
    `test_causal_history_verifier.py`.
 
-4. **The two specific persisted causal relationships the current
-   schema represents:**
-   - decision→audit ancestry (every audit record has exactly one
-     preceding allowed decision record) —
-     `causal_history_verifier.py` Check 1
-   - module identity cross-reference (every `module_id` in the
-     decision/audit logs has a successful registration attempt on
-     record) — `causal_history_verifier.py` Check 3
+4. **What `reconstruction_valid` actually depends on (corrected 2026-08-08 — see "Finding: `reconstruction_valid`'s scope was understated" below for the full account):**
 
-   This is explicitly **not** a general causal graph. No other
-   cross-artifact relationship is currently verified, and none should
-   be assumed to exist.
+   `reconstruction_valid` is a single boolean (`ColdBootReconstructionResult.reconstruction_valid`, a direct passthrough of `CausalHistoryReport.passed`) computed over the **complete, undifferentiated** set of checks that ran — `len(failures) == 0` across all of them, with no distinction anywhere in the architecture between "core" and "auxiliary" checks. This document previously named only two of those checks. It now enumerates all six that run unconditionally when `reconstruct_cold_boot()` is called (a seventh and eighth, `policy_decision_provenance`/`policy_decision_orphans`, only run if a caller separately supplies `policy_decision_log_path` — `reconstruct_cold_boot()` itself never does, so those two remain out of scope for this claim specifically, consistent with the original text below).
+
+   **Cross-artifact relationships** (a check comparing two different record types against each other):
+   - decision→audit ancestry (every audit record has exactly one preceding allowed decision record) — `causal_history_verifier.py` Check 1
+   - module identity cross-reference (every `module_id` in the decision/audit logs has a successful registration attempt on record) — `causal_history_verifier.py` Check 3
+   - decision→audit execution completeness, the reverse of the first (every allowed decision that is not the last for its `(module_id, generation_id)` has a corresponding audit record — a legitimate trailing crash is explicitly exempted) — `causal_history_verifier.py` Check 6
+
+   **Per-log invariants** (a check validating one record type's own internal consistency, not a relationship between two types):
+   - per-`(module_id, generation_id)` sequence ordering, checked independently within the decision log and within the audit log — `causal_history_verifier.py` Check 2
+   - no contradictory decisions (no `(sequence_id, module_id, generation_id)` key may have both an allowed and a denied `DecisionRecord`) — `causal_history_verifier.py` Check 7
+
+   **This is still explicitly not a general causal graph.** The distinction that matters is narrower than "two relationships, nothing else": it is that `causal_history_verifier.py`'s cross-artifact checks are limited to the two originally named plus decision-execution-completeness above — no relationship involving `PolicyDecisionRecord` is ever verified by `reconstruct_cold_boot()`, since it never supplies a policy log. That boundary still holds. What does not hold, and did until this correction, is the claim that *only* two checks of any kind determine `reconstruction_valid`.
+
+   **Original text, preserved for the historical record — this specific enumeration was inaccurate as of 2026-08-08, not merely incomplete:** *"The two specific persisted causal relationships the current schema represents: decision→audit ancestry... module identity cross-reference... This is explicitly not a general causal graph. No other cross-artifact relationship is currently verified, and none should be assumed to exist."* The "no other cross-artifact relationship is currently verified" clause was true when written and became false the moment Check 6 (decision-execution-completeness, itself a genuine cross-artifact relationship) was added and wired into the same unconditional check set — without this document being revisited.
 
 5. **Hash consistency between persisted artifacts and their published
    deterministic derivation algorithm** — recomputing and verifying a
@@ -195,6 +199,31 @@ smuggled into a SHALL clause.
    records observed in testing came only from incidental frame-content
    differences (`input_hash` / `output_hash`), never from any chaining
    property of the hash itself.
+
+---
+
+## Finding: `reconstruction_valid`'s scope was understated (resolved 2026-08-08)
+
+**Status: RESOLVED — this document corrected, no code changed.** Found via adversarial calibration attack (`CB-001`, chosen from a ranked candidate pool specifically for its independence from the four claims already attacked to full coverage this session — `MB-004`, `HC-001`, `HC-003`, `PG-001`). This is a claim-boundary/semantic-inflation finding, not an implementation defect: nothing about `causal_history_verifier.py` or `cold_boot_reconstruction.py`'s actual behavior is wrong. The problem was this document's own description of what `reconstruction_valid` depends on.
+
+**The investigation, narrow and intent-focused rather than a full seven-family campaign:**
+
+1. Traced `reconstruct_cold_boot()`'s actual body: `causal_report = verify_causal_history(registration_log_path, decision_log_path, audit_log_path)` is stored into the result whole, unfiltered — no subsetting of which checks' results matter.
+2. Traced `reconstruction_valid`'s definition: `return self.causal_report.passed` — a direct, one-line passthrough.
+3. Traced `passed` to its source in `CausalHistoryReport`: `return len(self.failures) == 0`, over a single flat `failures: List[str]` accumulated from every check that ran, with no per-check categorization anywhere in the class.
+4. Reread this contract's own language: `SHALL 4` (original text, preserved below for the historical record) named exactly two checks and stated explicitly — *"No other cross-artifact relationship is currently verified, and none should be assumed to exist."* The term `reconstruction_valid` was never used or scoped anywhere in this document at all.
+5. Asked directly: does the architecture anywhere distinguish "core `CB-001` evidence" from "additional verifier safeguards"? Confirmed, from the class definition itself, that it does not — `CausalHistoryReport`'s own docstring states `passed` depends on "every check that actually ran," unconditionally, with no carve-out.
+
+**Since no such two-layer distinction exists anywhere in the real architecture, the contract's original `SHALL 4` was found to be the inaccurate side of the divergence, not the code** — this reads as one verifier whose scope grew through genuine, deliberate additions (Checks 6 and 7, both added in later work for real reasons) with this document never revisited, not as a system that ever intended a narrower `reconstruction_valid` and drifted from it by accident.
+
+**Two isolated, executed confirmations — not merely traced — that Checks 6 and 7 are genuine `reconstruction_valid` prerequisites `SHALL 4` never named:**
+
+- **Check 6 (decision-execution-completeness) isolated:** constructed two genuinely allowed `DecisionRecord`s for one registered module — sequence 1 (not the trailing decision, no audit record) and sequence 2 (the trailing decision, with a matching audit record). Both `SHALL 4`-named checks confirmed clean by inspecting the actual failure list (no decision-ancestry failure, no module-identity failure) — the *only* failure present was Check 6's, naming sequence 1's missing audit explicitly. `reconstruction_valid` was `False`.
+- **Check 7 (no-contradictory-decisions) isolated:** constructed one registered module with two `DecisionRecord`s sharing the exact same `(sequence_id, module_id, generation_id)` — one allowed, one denied — and no audit records at all (avoiding any Check 1 interaction; Check 6's trailing exemption confirmed to apply cleanly to the allowed decision, ruling out cross-contamination between the two attacks). Both `SHALL 4`-named checks again confirmed clean. The *only* failure present was Check 7's contradictory-decision message. `reconstruction_valid` was `False`.
+
+Both executions ran the real, unmodified `reconstruct_cold_boot()` calling the real, unmodified `verify_causal_history()` — with only the underlying disk-read functions substituted for direct in-memory objects, the same narrow substitution used earlier this session for `PG-001`'s own Omission finding.
+
+**Disposition: `SHALL 4` above corrected to enumerate all six unconditionally-run checks, distinguishing genuine cross-artifact relationships from per-log invariants — no code change.** `[finding: claim-boundary/semantic-inflation issue / disposition: documented limitation]`.
 
 ---
 
