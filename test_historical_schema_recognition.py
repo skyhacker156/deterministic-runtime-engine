@@ -188,3 +188,82 @@ def test_decision_record_payload_is_not_recognized_by_audit_record_classifier():
     result = classify_execution_audit_record_payload(decision_payload)
 
     assert result.recognition == SchemaRecognition.UNRECOGNIZED
+
+def test_overlapping_historical_schemas_are_rejected_at_import_time():
+    """
+    Finding, SE-002's own seven-family campaign (2026-08-10), Duplication
+    family. Confirmed by direct construction and execution before this
+    fix: two historical schema entries sharing an identical field-name
+    set caused the FIRST one in the list to silently win, with zero
+    indication the ambiguity existed -- reversing list order flipped
+    which schema name got reported. Not reachable through any live call
+    path today (only one historical schema entry exists per real record
+    type) -- the same "risk is future code evolution" shape as VP-001's
+    own finding.
+
+    Fixed: _validate_historical_schemas_are_pairwise_distinct() now runs
+    at import time for both real record types' historical-schema lists,
+    and is tested here directly against a deliberately constructed
+    colliding pair.
+    """
+    from historical_schema_recognition import _validate_historical_schemas_are_pairwise_distinct
+
+    shared_fields = frozenset({"sequence_id", "module_id", "allowed", "decision_hash"})
+    colliding_schemas = [
+        ("Schema A", shared_fields),
+        ("Schema B, same fields", shared_fields),
+    ]
+
+    try:
+        _validate_historical_schemas_are_pairwise_distinct("DecisionRecord", colliding_schemas)
+        assert False, "expected AssertionError for colliding historical schemas, none was raised"
+    except AssertionError as e:
+        assert "IDENTICAL field set" in str(e)
+
+def test_real_historical_schema_lists_are_genuinely_distinct():
+    """
+    Confirms the real, live constants pass the new validator -- the
+    module already imports successfully (proving this implicitly), but
+    this test makes the guarantee explicit and named, not merely
+    incidental to a successful import.
+    """
+    from historical_schema_recognition import (
+        _validate_historical_schemas_are_pairwise_distinct,
+        _DECISION_RECORD_HISTORICAL_SCHEMAS,
+        _EXECUTION_AUDIT_RECORD_HISTORICAL_SCHEMAS,
+    )
+
+    _validate_historical_schemas_are_pairwise_distinct(
+        "DecisionRecord", _DECISION_RECORD_HISTORICAL_SCHEMAS
+    )
+    _validate_historical_schemas_are_pairwise_distinct(
+        "ExecutionAuditRecord", _EXECUTION_AUDIT_RECORD_HISTORICAL_SCHEMAS
+    )
+
+
+def test_non_dict_payload_is_gracefully_unrecognized_not_a_crash():
+    """
+    Finding, SE-002's own seven-family campaign (2026-08-10), Omission
+    family. Confirmed by direct execution before this fix:
+    classify_decision_record_payload() raised an uncaught AttributeError
+    on non-dict input ('list' object has no attribute 'keys') rather than
+    returning a graceful UNRECOGNIZED classification. Both real callers
+    already guard with isinstance(payload, dict) before calling this
+    function, so no live path reached this gap -- but the function itself
+    was not defensive.
+
+    Fixed: _classify() (and both classify_*_payload() wrappers built on
+    it) now return UNRECOGNIZED directly for non-dict input.
+    """
+    from historical_schema_recognition import (
+        classify_decision_record_payload,
+        classify_execution_audit_record_payload,
+        SchemaRecognition,
+    )
+
+    for bad_payload in [["not", "a", "dict"], "also not a dict", 42, None]:
+        result = classify_decision_record_payload(bad_payload)
+        assert result.recognition == SchemaRecognition.UNRECOGNIZED
+
+        result = classify_execution_audit_record_payload(bad_payload)
+        assert result.recognition == SchemaRecognition.UNRECOGNIZED

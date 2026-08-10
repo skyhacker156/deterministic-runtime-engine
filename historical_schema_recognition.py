@@ -191,6 +191,52 @@ _EXECUTION_AUDIT_RECORD_HISTORICAL_SCHEMAS: List[Tuple[str, FrozenSet[str]]] = [
 ]
 
 
+def _validate_historical_schemas_are_pairwise_distinct(
+    record_type_name: str,
+    historical_schemas: List[Tuple[str, FrozenSet[str]]],
+) -> None:
+    """
+    Asserts every historical schema entry for one record type has a
+    genuinely unique field-name set. Found via `SE-002`'s own
+    adversarial campaign (2026-08-10), confirmed by direct construction
+    and execution against the real `_classify()` function: two entries
+    sharing an identical field set caused the FIRST one in the list to
+    silently win, with zero indication the ambiguity existed --
+    reversing list order flipped which schema name got reported, pure
+    list-position dependence. Not reachable through any live call path
+    today (only one historical schema entry exists per record type as
+    of this writing) -- the same "risk is future code evolution, not
+    adversarial input today" shape as `VP-001`'s own finding.
+
+    Run once, at import time, immediately after each record type's
+    historical-schema list is declared below -- so a maintainer who
+    ever adds a second, accidentally-overlapping historical schema gets
+    an immediate, loud failure here, rather than a silent, order-
+    dependent misclassification discovered later by a real payload.
+    """
+    seen: Dict[FrozenSet[str], str] = {}
+    for schema_name, field_set in historical_schemas:
+        if field_set in seen:
+            raise AssertionError(
+                f"{record_type_name}: historical schemas {seen[field_set]!r} "
+                f"and {schema_name!r} declare the IDENTICAL field set "
+                f"{sorted(field_set)!r} -- classification cannot distinguish "
+                f"them, and would silently resolve to whichever is listed "
+                f"first. Give each historical schema a genuinely distinct "
+                f"field set, or merge them if they really are the same "
+                f"schema under two names."
+            )
+        seen[field_set] = schema_name
+
+
+_validate_historical_schemas_are_pairwise_distinct(
+    "DecisionRecord", _DECISION_RECORD_HISTORICAL_SCHEMAS
+)
+_validate_historical_schemas_are_pairwise_distinct(
+    "ExecutionAuditRecord", _EXECUTION_AUDIT_RECORD_HISTORICAL_SCHEMAS
+)
+
+
 def classify_decision_record_payload(payload: Dict) -> SchemaClassification:
     return _classify(
         payload,
@@ -220,7 +266,30 @@ def _classify(
     Same treatment for a near-miss on a historical schema. Silently
     accepting "close enough" would be exactly the kind of unstated
     leniency SCHEMA_EVOLUTION_MODEL.md's whole point is to avoid.
+
+    DEFENSIVE GUARD (found via `SE-002`'s own campaign, 2026-08-10):
+    confirmed by direct execution that this function previously had no
+    guard of its own against non-dict input -- `payload.keys()` raised
+    an uncaught `AttributeError` rather than returning a graceful
+    `UNRECOGNIZED` classification. Both real callers
+    (`historical_verification.py`, `decision_record_log.py`) already
+    check `isinstance(payload, dict)` before calling this function, so
+    no live path reached this gap -- but the function itself was not
+    defensive, relying entirely on every current and future caller
+    remembering to guard first. Now returns `UNRECOGNIZED` directly for
+    non-dict input, consistent with this module's own stated contract
+    that `UNRECOGNIZED` covers "an unrelated record type's payload" and
+    ambiguous cases generally -- a non-dict payload is the most
+    unambiguous case of "not this schema" there is.
     """
+    if not isinstance(payload, dict):
+        return SchemaClassification(
+            recognition=SchemaRecognition.UNRECOGNIZED,
+            schema_name=None,
+            missing_fields=current_fields,
+            unexpected_fields=frozenset(),
+        )
+
     payload_keys = frozenset(payload.keys())
 
     if payload_keys == current_fields:
