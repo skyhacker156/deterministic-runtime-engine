@@ -658,6 +658,102 @@ Both real findings `[finding: implementation defect / disposition: fixed + regre
 
 ---
 
+## CI-001: channel semantic identity — preserved by construction, not by verification
+
+Selected as the next target after re-establishing suite state on a fresh,
+non-git-tracked sandbox copy of the repo (474/476 passing outside the
+Windows-only Rust-parity file; the two `test_longevity_benchmark.py` timeouts
+left explicitly UNRESOLVED — environment/performance distinction not yet
+established, not treated as a regression). Framed from the full-repo sweep as
+a genuine Boundary-Crossing candidate distinct from every hash-chain claim
+attacked so far this session: does Phoenix A actually verify that a channel's
+*meaning* survives the Vent→Bridge→Kernel seam, or does the pipeline merely
+happen to agree with itself across three independently-hardcoded assumptions?
+
+**Read before attacking, per standing practice.** `VentAdapterContract.process_raw_packet`
+builds its `channels` dict from three hardcoded literal keys (`chemical_pH`,
+`seismic_amplitude`, `temperature_readings`). `StratifiedTensorPacker.pack_channels_stratified`
+sorts channel names alphabetically before packing — position in the 256-dim
+output tensor is a pure function of channel-name string ordering, nothing
+else. `BridgeIntegrator.verify_and_transform` slices the flat tensor at
+hardcoded offsets (`CHANNEL_LAYOUT`: `[0:86]`, `[86:171]`, `[171:256]`) and
+labels them `ph_slice`/`seismic_slice`/`temp_slice` by position, not by any
+check against the channel name that actually produced that data.
+`replay_engine._bridge_frame_to_kernel_frame` concatenates the three named
+slices back into one flat array in the same fixed order. A grep across the
+kernel and risk-governor modules found zero further channel-specific reads
+downstream of that concatenation — the flat payload carries no channel
+semantics of its own past this seam.
+
+**Five constructions, run for real, not inferred from reading:**
+
+1. **Insertion-order permutation — clean.** Three differently-ordered dict
+   literals with identical key/value content produced byte-identical packed
+   tensors. `sorted()` genuinely neutralizes dict insertion order.
+2. **Channel rename preserving alphabetical rank — clean.** Renaming each
+   channel while keeping its first letter's sort position unchanged left the
+   packed positions unchanged; distinctive per-channel marker values landed
+   exactly where expected.
+3. **Real pipeline, real field names — clean (positive control).** Through
+   the actual public entry point, with distinctive markers on each channel,
+   `frame.ph_slice[0]`/`seismic_slice[0]`/`temp_slice[0]` matched their
+   correct channels every time.
+4. **Channel rename that changes alphabetical rank — the finding.**
+   Constructed three channels (`aardvark_temperature`, `chemical_pH`,
+   `seismic_amplitude`) whose alphabetical order no longer matches
+   `CHANNEL_LAYOUT`'s assumed (pH, seismic, temperature) order, and called
+   `StratifiedTensorPacker.pack_channels_stratified` directly — bypassing
+   `process_raw_packet` entirely, since the packer itself has no name
+   restriction. Computed a legitimate provenance hash over the resulting
+   tensor with `VentAdapterContract`'s own canonical hash function (no
+   forgery — the same function the real system uses) and pushed the result
+   through the real, unmodified `BridgeIntegrator.verify_and_transform`.
+   **Neither `IntegrityError` nor `SensorStagnationFault` fired.** The
+   returned `CoreExecutionFrame.ph_slice[0]` held the temperature marker;
+   `seismic_slice[0]` held the pH marker. A validly-shaped, validly-hashed
+   frame arrived with scrambled semantic labels, and every local integrity
+   check passed.
+5. **Reachability and downstream-consequence check.** Confirmed by reading
+   `process_raw_packet`'s source directly (not assumed) that no caller-
+   supplied channel name can reach the packer through the real public API —
+   the three keys are hardcoded literals, full stop. Then confirmed by
+   execution that the Finding #4 mislabeling *does* propagate into the final
+   Kernel `payload` array rather than being cancelled out by `replay_engine`'s
+   symmetric slice/reassemble — the clean and mislabeled payloads diverge
+   starting at index 0.
+
+**The precise architectural distinction this establishes, stated as the
+finding rather than as a live defect:** the production path preserves channel
+semantic identity *by construction* — a fixed, hardcoded set of three channel
+names feeding a deterministic sort — not by any check that would catch a
+future violation. **Integrity of the tensor does not establish semantic
+identity of the tensor's regions.** A SHA-256 over the packed tensor proves
+this is exactly the tensor that was hashed; it cannot prove the first 86
+elements are actually pH. This is a materially different — and more
+accurate — claim than "the pipeline has a live channel-confusion bug." It
+doesn't. But nothing currently stands between today's closed, correct
+production path and tomorrow's silent corruption if `pack_channels_stratified`
+is ever called from a second call site, or if `process_raw_packet`'s
+literal-key restriction is ever relaxed to accept configurable channel names.
+
+`[finding: claim-boundary/architectural-risk / disposition: documented
+limitation — no code changed]`. Deliberately not fixed: adding a verification
+step to a boundary that is currently closed by construction would mean
+solving a problem the real, deployed system doesn't have today, at the cost
+of implying the packer's public surface is meant to be called with arbitrary
+channel sets, which it isn't. The correct disposition is the same one used
+for `HC-004`: make the claim state precisely what the architecture
+guarantees, rather than rewrite working code to match an inflated claim.
+
+`CI-001` is the **eleventh** claim this session to reach a fully-traced
+disposition, and the first whose attack surface lives at the Surface/Bridge
+seam rather than inside the hash-chain claims (`HC-`/`CH-`/`PG-`/`MB-`
+territory) or the classification/dispatch shape (`SE-002`/`SE-003`) — a third
+genuinely distinct claim *shape* this session, after cross-record-relationship
+and classification/dispatch.
+
+---
+
 ## Attack campaigns, not "the next N attacks"
 
 One claim can take multiple attacks from different families; the useful unit of coverage is the (claim, family) pair, not a flat attack count. First-pass coverage matrix — **not exhaustive by design**, populated only with what's actually been run:
