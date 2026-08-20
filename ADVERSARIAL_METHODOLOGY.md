@@ -892,6 +892,452 @@ but not enforced by any test?
 
 ---
 
+## CI-003: frame type non-interchangeability is not mechanically enforced
+
+Selected directly from the Canonicality Audit's #2 candidate — same source
+paragraph as `CI-002` in `ARCHITECTURE_FREEZE_v1.5.md`: two distinct
+`CoreExecutionFrame` classes exist (Bridge-side, three named slices;
+Kernel-side, single 256-element payload), stated as "not interchangeable,"
+with "any code that treats them as the same type is a bug." `CI-002` tested
+the seam *conversion*; this claim is about the two *types themselves* —
+genuinely distinct territory, checked before assuming it was already covered.
+
+**Bounded attack, not a fix-seeking one, per explicit instruction:** construct
+real frames and duck-typed impostors, attempt substitution at each real
+consumption point, and answer one question — is "not interchangeable"
+enforced, behaviorally enforced, or documentation-only?
+
+**Construction 1 — direct substitution, real frames.** Fed a genuine
+`BridgeExecutionFrame` straight into `DeterministicOrderingBarrier.push()`.
+Rejected: `AttributeError: 'CoreExecutionFrame' object has no attribute
+'seq_id'`. Real, but confirmed **incidental** — grep across all production
+code found zero `isinstance` checks against either `CoreExecutionFrame`
+class. The block is a side effect of the two real classes sharing no field
+names, not a deliberate guard.
+
+**Construction 2 — the actual test of the claim: duck-typed impostor,
+Kernel side.** Built `FakeKernelFrame`, a genuinely third, unrelated class
+(not either real `CoreExecutionFrame`), exposing only the attribute/method
+shape the real consumers read: `seq_id`, `timestamp_ns`, `payload`,
+`provenance_hash`, `verify_integrity()`, `calculate_hash()` (the latter two
+implementing the identical real hashing logic — no forged hash, a
+legitimately-computed one). Pushed through the real, unmodified
+`DeterministicOrderingBarrier` and `DeterministicExecutionEngine`:
+
+```
+barrier2.push(fake) returned: 1 ready frame(s), type of first: FakeKernelFrame
+engine.process_frame(fake) result.success: True
+```
+
+Accepted end-to-end. A real, successful execution result, from an object
+that is not, and was never claimed to be, a sanctioned frame type.
+
+**Construction 3 — the reverse seam, Bridge side.** Built a second
+duck-typed impostor exposing only `ph_slice`/`seismic_slice`/`temp_slice`/
+`timestamp` — the exact shape `replay_engine._bridge_frame_to_kernel_frame()`
+reads. Accepted, produced a real `KernelExecutionFrame`. Both directions of
+the seam are equally unenforced.
+
+**Answer to the framed question:** neither "enforced" nor purely
+"documentation-only" — narrower and weaker than either. The specific pairing
+named in the architecture doc (the two real classes) is blocked, but only by
+accident of non-overlapping field names. The property the sentence actually
+implies — that the Kernel execution path only accepts genuine, sanctioned
+frame objects — is false. Python's dataclass system provides no runtime
+type enforcement by default, and nothing in this codebase adds any; any
+sufficiently-shaped object, real or fake, is accepted identically to the
+real thing.
+
+**Disposition: CLAIM-BOUNDARY — not currently reachable through sanctioned
+production construction, not a live defect.** `[finding: claim-boundary /
+disposition: documented limitation, no code changed]`. **Guarantee actually
+established: sanctioned constructors, as used in the real production path,
+currently produce the intended frame types.** **Guarantee NOT established:
+only sanctioned frame types can cross the execution boundaries.** Today's
+real pipeline never constructs anything but genuine instances via the real
+classes, so this is not an active runtime vulnerability against the deployed
+system — same reachability shape as `CI-001`. Explicitly not classified as a
+security defect on the evidence gathered here: no live path was found that
+lets an attacker or ordinary bug introduce a foreign object into this
+pipeline today. The gap is architectural: nothing would catch it if one
+ever did.
+
+**The precise distinction from `CI-002`, worth stating explicitly:** `CI-002`
+found two *sanctioned* implementations of one responsibility silently
+diverging — a composition failure between correct, deliberate code.
+`CI-003` shows the "not interchangeable" boundary the architecture names is
+not actually a type boundary at all — it is a structural/duck-typing
+boundary that happens to hold for the two specifically-named classes, by
+accident, and offers zero defense against anything else. Different failure
+shape: `CI-002` is "two implementations disagree," `CI-003` is "the
+boundary was never actually built, only described."
+
+`CI-003` is the **thirteenth** claim this session to reach a traced
+disposition, and the second produced directly by the Canonicality Audit
+(after `CI-002`, which prompted the audit). Confirms the audit's premise is
+productive: the same source paragraph in `ARCHITECTURE_FREEZE_v1.5.md`
+produced two independent, differently-shaped findings.
+
+---
+
+## CI-004: canonical implementation identity is not mechanically enforced (`historical_verification.py`)
+
+First target of the Canonicality Audit's #3/#6 campaign — the "never
+reimplement, recompute via the real class" principle, restated near-verbatim
+in four separate documents (`PHOENIX_VERIFICATION_STATE.md`,
+`COLD_BOOT_RECONSTRUCTION_CONTRACT.md`, `VERIFICATION_PIPELINE_MODEL.md`,
+`execution_module_spec.md`) but mechanically enforced (via AST-based
+structural tests) in exactly two files: `cold_boot_reconstruction.py` and
+`generation_segmentation.py`. `historical_verification.py` was flagged in
+the audit as claiming the same principle with zero enforcement mechanism
+found, not even indirect.
+
+**The governing adversarial question, stated precisely per this campaign's
+own framing:** does "never reimplement" survive adversarial construction,
+including paths where behavioral equivalence makes a duplicate
+implementation difficult to notice? Not "is the real function currently
+being called" (confirmed true by direct source read — `historical_verification.py`
+does import and call the real `decision_record_from_json`) but "would
+anything catch it if that stopped being true."
+
+**Construction, run for real, not inferred:** built a shadow reimplementation
+of `decision_record_from_json()` — validates `module_id` non-empty,
+`decision_hash` exactly 32 bytes, matching the real class's checks — but
+missing one specific validation the real `DecisionRecord.__post_init__`
+enforces: `generation_id` must be exactly 16 bytes. A plausible oversight,
+not a contrived one; the kind of gap a well-intentioned refactor away from
+importing `decision_record_persistence` could introduce without noticing.
+
+**First attempt was methodologically wrong, caught and redone.** Initially
+monkeypatched `historical_verification.decision_record_from_json` inside one
+Python process, then launched `pytest` as a *separate subprocess* — which
+re-imports the module fresh and never sees the patch. All 18 tests passed,
+but against the real, unmodified code, not the shadow — a false-clean
+result. Caught before drawing any conclusion from it. Redone properly:
+physically edited the real `historical_verification.py` on disk, replacing
+the real import with the shadow function's full definition, so `pytest`
+running normally would exercise the actual substituted code.
+
+**Result, with the genuine substitution in place:**
+
+```
+test_historical_verification.py :: 18 passed
+full suite (excl. DLL-parity, longevity) :: 476 passed
+```
+
+**Nothing caught it.** The one test that gets closest,
+`test_current_schema_decision_record_with_malformed_hash_fails`, only
+constructs a malformed `decision_hash` (4 bytes, not 32) — which the shadow
+correctly rejects, since that check was faithfully copied. It never
+constructs a malformed `generation_id`, so the shadow's missing check is
+never exercised by any existing test, anywhere in the suite.
+
+Reverted immediately via `diff` against the pre-attack backup — confirmed
+byte-identical — then confirmed the real suite passes clean again (18/18,
+`historical_verification.py` alone).
+
+**What this proves, stated with the precision the finding earns —
+proven vs. not proven, not blurred together:**
+
+**Proven:** the substituted shadow behaved correctly for every input the
+existing tests construct. The suite detected zero regression from the
+substitution. The real implementation genuinely has a stronger invariant
+set than the shadow — the 16-byte check is real and does exist in the
+actual, currently-running code.
+
+**Not proven, and now known false:** that `historical_verification.py`'s
+delegation to the canonical persistence function is *itself* a tested
+property. That a future shadow implementation — introduced by refactor,
+by a well-meaning "let's avoid this import" cleanup, or by any other
+route — couldn't silently replace the real one with zero test failures.
+That the project's own four-times-stated "never reimplement" rule is
+mechanically enforced at this site.
+
+**Disposition: this is a verification/governance weakness, not a runtime
+correctness bug.** `[finding: claim-boundary/governance-gap / disposition:
+documented limitation, no code changed]`. No live defect exists — the real
+function is genuinely in use today, confirmed by direct source read before
+any construction began. What's missing is a test (most plausibly, an
+AST-based structural import check matching the pattern already used for
+`cold_boot_reconstruction.py`/`generation_segmentation.py`) that would catch
+the *specific* failure mode demonstrated here: silent substitution with
+preserved happy-path behavior.
+
+**Distinguishing this from the structural guard that already exists in this
+file:** `HistoricalVerificationResult.__post_init__` genuinely does raise if
+`schema_family` is ever set alongside a `PASS`/`FAIL` outcome — real,
+already confirmed by `SE-002`/`SE-003`'s full campaign. That guard protects
+a different property (recognition/verification exclusivity) than the one
+tested here (canonical-implementation identity for the PASS path itself).
+Two real guards can coexist in one file while one specific claim inside it
+remains unenforced — worth naming precisely rather than treating "this file
+has some structural enforcement" as covering everything the file claims.
+
+**The four `CI-` findings now form a real progression, worth stating
+explicitly:** `CI-001` — semantic identity depended on independently
+hardcoded ordering. `CI-002` — two sanctioned implementations of one
+transformation silently diverged. `CI-003` — a claimed-exclusive type
+boundary accepted arbitrary duck-typed objects, enforced only by accidental
+field-name mismatch. `CI-004` — a claimed-canonical implementation could be
+silently replaced by a behaviorally-equivalent shadow with zero test
+failures. Four different ways "there is one sanctioned way to do X" can
+fail, found by four different constructions against four different claims
+in the same architecture documents.
+
+`CI-004` is the **fourteenth** claim this session to reach a traced
+disposition.
+
+---
+
+## CI-005: replay self-consistency is not independent correctness verification (`kernel_state_replay.py`)
+
+Second target of the Canonicality Audit's #3/#6 campaign, attacked with the
+same adversarial question as `CI-004` — does "never reimplement" survive
+adversarial construction — but explicitly not assuming the same result.
+It didn't produce the same result. `historical_verification.py` imports a
+standalone function that could, in principle, be silently swapped for a
+weaker one. `kernel_state_replay.py` has no equivalent surface: read before
+attacking, confirmed by source, it drives a real `KernelStateMachine`
+instance through its own real `transition_to()`, `record_frame_execution()`,
+and `get_envelope()` methods throughout, with no local hash computation of
+its own (`hashlib` is not even imported). The "never reimplement" claim, as
+literally stated, **holds** here — there is nothing to reimplement, because
+nothing here computes anything independently.
+
+**That made the file a candidate for a genuine clean result — but the
+campaign's own standing discipline is not to declare clean from inspection
+alone.** Constructed a real adversarial test instead: does delegating to the
+canonical class actually protect against a regression *in* that class, the
+way the architecture's claims would suggest?
+
+**Construction:** reintroduced, in the real `execution_kernel_state.py`, the
+exact historical regression this project's own commit history already fixed
+once (Gap 1b, the reset-observability work): removed `generation_id` from
+`KernelStateMachine.get_envelope()`'s hash computation — the state hash of
+two envelopes with identical scalar fields but different generations
+becomes indistinguishable again, exactly the bug the original fix closed.
+`kernel_state_replay.py` itself was never touched.
+
+**Isolated result — the file's own dedicated tests:**
+```
+test_kernel_state_replay.py :: 6 passed
+```
+**Regression completely undetected** by the module whose entire purpose is
+verifying state-hash continuity across replay.
+
+**Full suite result:**
+```
+1 failed, 475 passed
+FAILED test_reset_epoch_observability.py::test_kernel_and_record_hash_now_distinguish_reset_generations_but_decision_hash_does_not
+```
+Exactly one failure, in a file that exercises `KernelStateMachine` directly
+and pins a specific behavioral expectation ("these two envelopes, with
+different generations, must produce different hashes") — not a file that
+goes through the replay module at all.
+
+**Why, mechanistically, precisely — this is the actual content of the
+finding, not just the headline result:** `kernel_state_replay.py`'s design
+compares a freshly-replayed hash against a *recorded* `prior_state_hash`.
+In this construction, the recorded value (produced by test fixtures, which
+also construct their records via the same regressed class) and the replayed
+value use the identically-broken algorithm. The comparison correctly
+reports "match" — correctly, given what it actually checks: internal
+self-consistency between two computations sharing the same code, not
+correctness against any independent reference. A regression shared across
+both sides of a self-consistency check is invisible to that check by
+construction, not by oversight in this specific module's design.
+
+**Reverted immediately** via `diff` against the pre-attack backup —
+confirmed byte-identical — then confirmed the real test files pass clean
+again (8/8 across `test_kernel_state_replay.py` +
+`test_reset_epoch_observability.py`).
+
+**Proven vs. not proven, stated with the same precision `CI-004` earned:**
+
+**Proven:** `kernel_state_replay.py` does not independently reimplement the
+state/hash machinery — it genuinely, correctly delegates to
+`KernelStateMachine`. Its replay comparison detects real divergence between
+replayed and recorded state, when the two sides actually differ.
+
+**Not proven:** that the canonical implementation it delegates to remains
+semantically correct. That replay's recorded and reconstructed hashes are
+independently anchored to any expected value, rather than merely to each
+other. That a shared regression in the canonical class will be caught by
+replay's own test suite — demonstrated, by construction, that it will not.
+
+**Disposition: verification-boundary / oracle-independence gap, not a
+delegation failure.** `[finding: claim-boundary/verification-oracle-gap /
+disposition: documented limitation, no code changed]`. Explicitly distinct
+from `CI-004`: `CI-004` showed a *missing-coverage* gap in adversarial input
+space for a module that reimplements nothing of consequence in the failure
+path tested; `CI-005` shows that even genuine, complete delegation does not
+by itself provide an independent correctness oracle — delegation protects
+against *divergence* between two computations, not against a *shared* fault
+in the thing both sides delegate to. **The full suite DID catch this
+regression** — real evidence Phoenix A has independent protection somewhere
+— but it was located by scope overlap with an unrelated test file, not by
+any design intent of the replay module itself. A reader auditing
+`kernel_state_replay.py` in isolation, the way this construction started,
+would have no way to know that protection exists elsewhere.
+
+**The five `CI-` findings, read as one progression:** `CI-001` — semantic
+canonicality (three components independently assumed one channel ordering).
+`CI-002` — implementation canonicality (two actual transformation
+implementations diverged). `CI-003` — type canonicality ("non-interchangeable"
+types were not actually enforced, only accidentally separated). `CI-004` —
+delegation canonicality (a canonical implementation could be silently
+replaced by a behaviorally-equivalent shadow with zero test failures).
+`CI-005` — oracle independence (genuine, complete delegation can still
+produce a self-consistent but jointly-incorrect verification result). The
+throughline across all five: canonical *execution* and independent
+*verification* are different properties, and Phoenix A's architecture
+documents consistently claim the former without always distinguishing
+whether the latter exists.
+
+`CI-005` is the **fifteenth** claim this session to reach a traced
+disposition.
+
+**Campaign paused here, deliberately, per explicit instruction — not
+launching a sixth attack.** Five findings across five different canonicality
+failure shapes is treated as sufficient evidence to step back to a
+system-level question (a Guarantee Matrix classifying every architectural
+guarantee as mechanically enforced / behaviorally tested / verified only via
+an independent neighboring test / documentation-only / intentionally out of
+scope) rather than continuing to accumulate individual attacks. See the
+Guarantee Matrix work for the next entry.
+
+---
+
+## EW-001: external workload validation — observed behavior under an independently-specified telemetry workload
+
+Different in kind from every `CI-` finding above. Those tested Phoenix A
+against inputs authored with knowledge of the internals — adversarial
+constructions built by someone who had already read the source. This
+campaign asked a different question: what happens when Phoenix A meets a
+workload that was never designed with its schema, assumptions, or edge
+cases in mind at all?
+
+**Method, stated precisely because the independence claim only holds if the
+process was actually followed:** `EXTERNAL_WORKLOAD_SPEC.md` was authored
+*first*, before re-consulting any Phoenix A source file for this campaign,
+grounded in real, independently-documented industrial process-monitoring
+conventions — NAMUR NE43-style analog-loop fault sentinels for a pH
+sensor, ISO 10816 vibration severity zones, RTD open-circuit fault
+reporting for temperature. The spec's packet shape (variable-length
+per-channel reading arrays, first-class per-channel quality flags,
+millisecond epoch timestamps, JSON-key channel identity) was derived from
+these external conventions, not from Phoenix A's own `RawVentTelemetryPacket`
+shape. A 26-packet synthetic dataset (20 normal-operation packets, 6 edge
+cases the spec's own conventions produce as a matter of course, not as
+deliberate attacks) was generated from the spec alone. Only then was a
+translation layer built, mapping the external packet shape onto Phoenix
+A's real, unmodified ingestion contract — the point where external
+convention necessarily meets Phoenix A's actual required shape.
+
+**Predictions made from reading the real source before running anything,
+confirmed or disconfirmed by execution rather than left as inference:**
+
+1. `RawVentTelemetryPacket` has no field for quality/status — confirmed;
+   the translation layer had nowhere to put the external spec's `GOOD`/
+   `UNCERTAIN`/`BAD` flags.
+2. `pack_channels_stratified` only rejects on channel count, never on
+   value — confirmed; **26/26 packets passed QA**, including every fault
+   sentinel and the Zone-D vibration failure.
+3. The normalization formula's hardcoded `200.0` center has no relation to
+   any channel's real physical range — confirmed, and with a specific,
+   unpredicted asymmetry across channels (below).
+4. Finite fault sentinels pass through unaltered, unlike NaN/Inf —
+   confirmed.
+
+**Downstream trace, the deliberately narrow follow-up:** three controlled
+paired cases — healthy vs. externally-flagged-`BAD` reading, one pair per
+channel, the other two channels held constant — traced end-to-end through
+the real, unmodified `DeterministicExecutionEngine`/`PhoenixAExecutionModule`
+to a real `ExecutionResult`.
+
+```
+                    signal_energy    vector_variance   output_payload[0]
+pH (healthy/-1.0)      -0.006          +0.0005            -0.010   <- smallest shift
+Vibration (1.4/43mm/s) +0.024          -0.0015            -0.015
+Temperature (72/-999)  -0.024          +0.0132  (4.5x)     +0.104  <- largest shift
+```
+
+`success == True` in all six runs, across all three channels and both
+members of every pair — the module's own binary pass/fail decision is
+insensitive to all three externally-flagged fault conditions, uniformly.
+No metric or hash was ever bit-identical between the healthy and faulted
+member of any pair.
+
+**The precise, non-overclaimed reading of these two layers together:**
+Phoenix A's downstream decision neither fully preserves nor fully
+collapses the external GOOD/BAD distinction. The binary layer is blind to
+it entirely, on all three channels equally — not a pH-specific result. The
+continuous layer retains a real, hash-visible signal on every channel, but
+its *magnitude* is disproportionate to real-world severity: temperature's
+total sensor failure produces the largest disturbance by a wide margin; an
+equally real pH sensor fault produces the smallest disturbance of the
+three, for reasons entirely explained by where each channel's fault
+sentinel geometrically happens to sit relative to one hardcoded, channel-
+agnostic normalization constant — not by anything about the relative
+real-world severity of a pH failure versus a temperature failure.
+
+**Disposition: OBSERVED, explicitly not a defect with a chosen fix.**
+`[finding: external-validation / disposition: baseline behavior recorded,
+no remediation attempted]`. Two structural facts are worth separating,
+per the same precision this campaign's other findings have earned: (1)
+Phoenix A's ingestion contract has no field for externally-asserted
+quality at all — this is the schema as designed, not a bug, but it means
+an external quality signal is discarded before Phoenix A ever sees it,
+regardless of how that signal was produced. (2) The shared, hardcoded
+normalization constant produces channel-dependent fidelity as an
+unintended side effect of applying one generic transform across three
+physically heterogeneous ranges — not a design decision anyone made about
+relative channel importance. Whether either fact has any consequence for a
+real downstream policy or risk decision was not traced in this pass —
+`phoenix_a_risk_governor.py` was not confirmed to consume `signal_energy`
+or `vector_variance` — left as a genuinely open question rather than
+resolved in either direction.
+resolved in either direction at that point in the campaign.
+
+**This has since been traced and resolved.** Every real consumer of
+`ExecutionResult`, `.output_payload`, and `.metrics` was grepped and
+checked: `ExecutionAuditRecord.from_execution()` pulls only
+`success`/`output_hash`/`error_message` (a tamper-evidence hash, never a
+threshold comparison); `execution_policy.py`/`execution_authorizer.py` —
+the actual authorization/quota decision layer — have zero references to
+`output_payload`, `.metrics`, `signal_energy`, or `vector_variance`;
+`phoenix_a_risk_governor.py` is confirmed, by import graph, to be a
+structurally separate subsystem (imports only from `phoenix_a_core.py`),
+with no import relationship to this pipeline at all. **Nothing downstream
+consumes these metrics for any consequential decision.** `EW-001` is
+confirmed a semantic-fidelity finding, not a decision-path issue — Phoenix
+A can faithfully execute a numerically transformed representation of a
+sensor reading while being architecturally unaware, at every layer traced,
+of the real-world distinction between a healthy and a failed sensor that
+produced it. Deliberately still no fix proposed: the evidence establishes
+what's true, not which of several plausible corrections (explicit
+quality-state propagation, channel-specific normalization, physical-range
+validation, fault-state invariants, or domain-module responsibility for
+semantic validity) is the right one — choosing among them is a separate,
+later decision this finding does not by itself resolve.
+
+**Why this campaign shape matters, distinct from the `CI-` canonicality
+work:** every `CI-` finding tested whether a documented architectural rule
+survives adversarial construction by someone who already knows the
+internals. `EW-001` tested something orthogonal — whether the system's
+actual numerical behavior, under a value distribution nobody at Phoenix A
+designed the test suite around, still means what the architecture implies
+it means. Neither result would have been visible from internally-authored
+fixtures alone, which is precisely the value an independently-specified
+workload adds that the adversarial-construction campaigns, however
+rigorous, cannot supply on their own.
+
+`EW-001` is the **sixteenth** claim this session to reach a recorded
+disposition, and the first from a genuinely external-validation campaign
+rather than an internal adversarial one.
+
+---
+
 ## Attack campaigns, not "the next N attacks"
 
 One claim can take multiple attacks from different families; the useful unit of coverage is the (claim, family) pair, not a flat attack count. First-pass coverage matrix — **not exhaustive by design**, populated only with what's actually been run:

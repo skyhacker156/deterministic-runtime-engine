@@ -1,0 +1,621 @@
+[
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648000000,
+    "readings": {
+      "ph": [
+        7.15,
+        6.95,
+        7.22,
+        7.35
+      ],
+      "vibration_mm_s": [
+        1.146,
+        1.447,
+        1.631
+      ],
+      "temperature_c": [
+        73.2,
+        61.8,
+        78.38,
+        76.37,
+        76.52
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648005000,
+    "readings": {
+      "ph": [
+        7.03,
+        7.15
+      ],
+      "vibration_mm_s": [
+        1.112,
+        1.903
+      ],
+      "temperature_c": [
+        74.95
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648010000,
+    "readings": {
+      "ph": [
+        7.28,
+        7.13,
+        7.13
+      ],
+      "vibration_mm_s": [
+        0.567,
+        1.746
+      ],
+      "temperature_c": [
+        77.14,
+        73.09,
+        67.76
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648015000,
+    "readings": {
+      "ph": [
+        7.36
+      ],
+      "vibration_mm_s": [
+        1.417,
+        1.53
+      ],
+      "temperature_c": [
+        67.87
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648020000,
+    "readings": {
+      "ph": [
+        6.91,
+        6.91,
+        6.89,
+        6.82
+      ],
+      "vibration_mm_s": [
+        1.39,
+        1.752
+      ],
+      "temperature_c": [
+        69.74
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648025000,
+    "readings": {
+      "ph": [
+        6.85
+      ],
+      "vibration_mm_s": [
+        1.674
+      ],
+      "temperature_c": [
+        72.36
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648030000,
+    "readings": {
+      "ph": [
+        7.33
+      ],
+      "vibration_mm_s": [
+        1.398,
+        1.457,
+        1.68
+      ],
+      "temperature_c": [
+        67.54,
+        64.95,
+        75.58,
+        79.53,
+        62.66
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648035000,
+    "readings": {
+      "ph": [
+        7.32,
+        7.02,
+        7.13,
+        6.89
+      ],
+      "vibration_mm_s": [
+        1.423,
+        1.21,
+        1.779
+      ],
+      "temperature_c": [
+        73.12,
+        74.47,
+        77.3,
+        61.06
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648040000,
+    "readings": {
+      "ph": [
+        7.22,
+        7.01,
+        6.82
+      ],
+      "vibration_mm_s": [
+        1.686,
+        1.603,
+        1.798
+      ],
+      "temperature_c": [
+        76.52,
+        75.13
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648045000,
+    "readings": {
+      "ph": [
+        7.04,
+        6.84
+      ],
+      "vibration_mm_s": [
+        1.77,
+        1.407,
+        1.859
+      ],
+      "temperature_c": [
+        63.36
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648050000,
+    "readings": {
+      "ph": [
+        6.84,
+        7.33,
+        7.3
+      ],
+      "vibration_mm_s": [
+        0.595,
+        1.589
+      ],
+      "temperature_c": [
+        61.25,
+        71.09,
+        70.63,
+        63.34
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648055000,
+    "readings": {
+      "ph": [
+        7.36
+      ],
+      "vibration_mm_s": [
+        1.071
+      ],
+      "temperature_c": [
+        75.17,
+        82.03,
+        79.12,
+        65.69
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648060000,
+    "readings": {
+      "ph": [
+        7.13
+      ],
+      "vibration_mm_s": [
+        1.009
+      ],
+      "temperature_c": [
+        65.93,
+        68.14,
+        84.49,
+        78.38
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648065000,
+    "readings": {
+      "ph": [
+        6.82,
+        7.3,
+        7.37
+      ],
+      "vibration_mm_s": [
+        0.64,
+        1.033
+      ],
+      "temperature_c": [
+        61.46,
+        82.58,
+        76.55
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648070000,
+    "readings": {
+      "ph": [
+        6.92
+      ],
+      "vibration_mm_s": [
+        1.809
+      ],
+      "temperature_c": [
+        74.35,
+        80.16,
+        63.5,
+        79.55,
+        83.96
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648075000,
+    "readings": {
+      "ph": [
+        6.93,
+        7.31
+      ],
+      "vibration_mm_s": [
+        1.056,
+        1.531,
+        1.073
+      ],
+      "temperature_c": [
+        64.68,
+        77.95,
+        63.32,
+        71.78,
+        63.4
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648080000,
+    "readings": {
+      "ph": [
+        6.92
+      ],
+      "vibration_mm_s": [
+        1.979
+      ],
+      "temperature_c": [
+        62.35,
+        64.25
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648085000,
+    "readings": {
+      "ph": [
+        7.05,
+        6.87,
+        7.38,
+        6.86
+      ],
+      "vibration_mm_s": [
+        0.631,
+        0.726,
+        1.541
+      ],
+      "temperature_c": [
+        61.44,
+        72.43,
+        82.55,
+        69.94
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648090000,
+    "readings": {
+      "ph": [
+        6.95,
+        7.07
+      ],
+      "vibration_mm_s": [
+        0.8,
+        1.126,
+        1.165
+      ],
+      "temperature_c": [
+        69.92,
+        67.25,
+        71.26
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648095000,
+    "readings": {
+      "ph": [
+        7.39,
+        7.23,
+        7.05,
+        7.22
+      ],
+      "vibration_mm_s": [
+        1.357,
+        1.661,
+        1.713
+      ],
+      "temperature_c": [
+        79.92,
+        63.04
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648100000,
+    "readings": {
+      "ph": [
+        7.1
+      ],
+      "vibration_mm_s": [
+        42.7,
+        44.1,
+        43.8
+      ],
+      "temperature_c": [
+        71.2
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648105000,
+    "readings": {
+      "ph": [
+        -1.0
+      ],
+      "vibration_mm_s": [
+        1.2
+      ],
+      "temperature_c": [
+        72.0
+      ]
+    },
+    "quality": {
+      "ph": "BAD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648110000,
+    "readings": {
+      "ph": [
+        15.0
+      ],
+      "vibration_mm_s": [
+        1.1
+      ],
+      "temperature_c": [
+        71.8
+      ]
+    },
+    "quality": {
+      "ph": "BAD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648115000,
+    "readings": {
+      "ph": [
+        7.05
+      ],
+      "vibration_mm_s": [
+        1.4
+      ],
+      "temperature_c": [
+        73.1
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "UNCERTAIN",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648120000,
+    "readings": {
+      "ph": [
+        7.0,
+        7.02,
+        6.99
+      ],
+      "vibration_mm_s": [
+        1.3
+      ],
+      "temperature_c": [
+        70.1,
+        70.3,
+        70.2,
+        70.0,
+        69.9
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    }
+  },
+  {
+    "station_id": "STATION-07",
+    "epoch_ms": 1755648125000,
+    "readings": {
+      "ph": [
+        7.0
+      ],
+      "vibration_mm_s": [
+        1.2
+      ],
+      "temperature_c": [
+        -999.0
+      ]
+    },
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "BAD"
+    }
+  }
+]

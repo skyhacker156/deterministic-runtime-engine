@@ -1,0 +1,444 @@
+[
+  {
+    "idx": 0,
+    "batch_id": "STATION-07-1755648000000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 12,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126917,
+    "seismic_slice_sample": 0.120411,
+    "temp_slice_sample": 0.2196
+  },
+  {
+    "idx": 1,
+    "batch_id": "STATION-07-1755648005000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 5,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126784,
+    "seismic_slice_sample": 0.120375,
+    "temp_slice_sample": 0.222614
+  },
+  {
+    "idx": 2,
+    "batch_id": "STATION-07-1755648010000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 8,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.127061,
+    "seismic_slice_sample": 0.1198,
+    "temp_slice_sample": 0.226427
+  },
+  {
+    "idx": 3,
+    "batch_id": "STATION-07-1755648015000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 4,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.12715,
+    "seismic_slice_sample": 0.120699,
+    "temp_slice_sample": 0.210602
+  },
+  {
+    "idx": 4,
+    "batch_id": "STATION-07-1755648020000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 7,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126651,
+    "seismic_slice_sample": 0.12067,
+    "temp_slice_sample": 0.213728
+  },
+  {
+    "idx": 5,
+    "batch_id": "STATION-07-1755648025000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 3,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126585,
+    "seismic_slice_sample": 0.120972,
+    "temp_slice_sample": 0.218164
+  },
+  {
+    "idx": 6,
+    "batch_id": "STATION-07-1755648030000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 9,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.127116,
+    "seismic_slice_sample": 0.120679,
+    "temp_slice_sample": 0.210054
+  },
+  {
+    "idx": 7,
+    "batch_id": "STATION-07-1755648035000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 11,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.127105,
+    "seismic_slice_sample": 0.120705,
+    "temp_slice_sample": 0.219463
+  },
+  {
+    "idx": 8,
+    "batch_id": "STATION-07-1755648040000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 8,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126994,
+    "seismic_slice_sample": 0.120985,
+    "temp_slice_sample": 0.225342
+  },
+  {
+    "idx": 9,
+    "batch_id": "STATION-07-1755648045000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 6,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126795,
+    "seismic_slice_sample": 0.121074,
+    "temp_slice_sample": 0.203202
+  },
+  {
+    "idx": 10,
+    "batch_id": "STATION-07-1755648050000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 9,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126574,
+    "seismic_slice_sample": 0.119829,
+    "temp_slice_sample": 0.199807
+  },
+  {
+    "idx": 11,
+    "batch_id": "STATION-07-1755648055000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 6,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.12715,
+    "seismic_slice_sample": 0.120332,
+    "temp_slice_sample": 0.222995
+  },
+  {
+    "idx": 12,
+    "batch_id": "STATION-07-1755648060000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 6,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126895,
+    "seismic_slice_sample": 0.120266,
+    "temp_slice_sample": 0.207395
+  },
+  {
+    "idx": 13,
+    "batch_id": "STATION-07-1755648065000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 8,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126551,
+    "seismic_slice_sample": 0.119877,
+    "temp_slice_sample": 0.200143
+  },
+  {
+    "idx": 14,
+    "batch_id": "STATION-07-1755648070000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 7,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126662,
+    "seismic_slice_sample": 0.121115,
+    "temp_slice_sample": 0.221577
+  },
+  {
+    "idx": 15,
+    "batch_id": "STATION-07-1755648075000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 10,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126673,
+    "seismic_slice_sample": 0.120316,
+    "temp_slice_sample": 0.205348
+  },
+  {
+    "idx": 16,
+    "batch_id": "STATION-07-1755648080000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 4,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126662,
+    "seismic_slice_sample": 0.121296,
+    "temp_slice_sample": 0.201572
+  },
+  {
+    "idx": 17,
+    "batch_id": "STATION-07-1755648085000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 11,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126806,
+    "seismic_slice_sample": 0.119867,
+    "temp_slice_sample": 0.200111
+  },
+  {
+    "idx": 18,
+    "batch_id": "STATION-07-1755648090000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 8,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126695,
+    "seismic_slice_sample": 0.120045,
+    "temp_slice_sample": 0.21403
+  },
+  {
+    "idx": 19,
+    "batch_id": "STATION-07-1755648095000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 9,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.127183,
+    "seismic_slice_sample": 0.120635,
+    "temp_slice_sample": 0.231333
+  },
+  {
+    "idx": 20,
+    "batch_id": "STATION-07-1755648100000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 5,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126861,
+    "seismic_slice_sample": 0.171789,
+    "temp_slice_sample": 0.216192
+  },
+  {
+    "idx": 21,
+    "batch_id": "STATION-07-1755648105000",
+    "quality": {
+      "ph": "BAD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 3,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.118157,
+    "seismic_slice_sample": 0.120469,
+    "temp_slice_sample": 0.21755
+  },
+  {
+    "idx": 22,
+    "batch_id": "STATION-07-1755648110000",
+    "quality": {
+      "ph": "BAD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 3,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.135873,
+    "seismic_slice_sample": 0.120363,
+    "temp_slice_sample": 0.21721
+  },
+  {
+    "idx": 23,
+    "batch_id": "STATION-07-1755648115000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "UNCERTAIN",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 3,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126806,
+    "seismic_slice_sample": 0.120681,
+    "temp_slice_sample": 0.219428
+  },
+  {
+    "idx": 24,
+    "batch_id": "STATION-07-1755648120000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "GOOD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 9,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126751,
+    "seismic_slice_sample": 0.120575,
+    "temp_slice_sample": 0.214333
+  },
+  {
+    "idx": 25,
+    "batch_id": "STATION-07-1755648125000",
+    "quality": {
+      "ph": "GOOD",
+      "vibration_mm_s": "GOOD",
+      "temperature_c": "BAD"
+    },
+    "qa_passed": true,
+    "error": null,
+    "data_points": 3,
+    "bridge_ok": true,
+    "kernel_ok": true,
+    "ph_slice_sample": 0.126751,
+    "seismic_slice_sample": 0.120469,
+    "temp_slice_sample": 6e-06
+  }
+]
