@@ -1338,6 +1338,98 @@ rather than an internal adversarial one.
 
 ---
 
+## EW-003: semantic-state persistence and cold reconstruction — the first real code change in this campaign
+
+Phase 2C of the External Workload Validation campaign, and the first point
+in this entire external-workload thread where a real Phoenix A source file
+was added — deliberately withheld until now, so the preceding phases
+(`EW-001`, Phase 2A, Phase 2B) could be conducted without the experiment
+being designed around an implementation that didn't exist yet. Phase 2B's
+three-architecture comparison gave this addition its justification: `B`
+and `C` both required quality to be a required field of one canonical
+object, and both passed the invariants A's sidecar failed — this phase
+built the smallest real version of that object and tested it for real.
+
+**Scope, held deliberately narrow per explicit instruction:** no confidence
+scores, no AI judgment fields, no domain reasoning, no coupling to any
+existing Phoenix A pipeline file. `semantic_state_contract.py` is
+freestanding — not imported by, and does not import from,
+`vent_adapter_contract.py`, `bridge_integrator_contract.py`,
+`deterministic_execution_engine.py`, or `phoenix_a_execution_module.py`.
+`BAD` does not mean "reject execution." That would have answered a
+different question than the one this phase was scoped to answer.
+
+**The experiment, stated exactly as framed:** if Phoenix records
+`value=7.1, quality=BAD`, can a cold replay reconstruct exactly that
+semantic state, and is a `GOOD` state with the same value cryptographically
+distinguishable?
+
+```
+H(GOOD, 7.1) != H(BAD, 7.1)
+```
+
+confirmed directly, and through a real cold-reconstruction path: written to
+an actual disk file via `append_semantic_log`, read back via
+`read_semantic_log` as a separate operation with no memory of how the
+readings were produced — value, quality, and hash all reconstructed
+exactly, across four mixed readings, in order, with each pair pairwise
+distinct.
+
+**Following this codebase's own existing conventions, not inventing new
+ones:** the hash uses `struct.pack('>d', value)`, matching
+`compute_canonical_hash`'s own packing style. The stored hash is never
+trusted on reconstruction — always recomputed and compared, mirroring
+`historical_verification.py`'s own documented convention (the one `CI-004`
+found had zero test coverage anywhere else in the codebase). This new code
+does not repeat that gap: `test_tampered_quality_is_detected_on_reconstruction`
+and `test_tampered_value_is_detected_on_reconstruction` both construct a
+real tampered payload and confirm reconstruction raises. Two entirely
+novel, unrecognized quality strings (`"COMPLETELY_UNRECOGNIZED_STRING_XYZ"`,
+`"ANOTHER_NOVEL_STRING"`) were run through the same hash function and
+behaved identically to `GOOD`/`UNCERTAIN`/`BAD` — confirming, structurally,
+that nothing here whitelists or special-cases the three quality values the
+external spec happened to name.
+
+**The architectural constraint, verified by direct comparison against
+`EW-001`'s own original measurement, not merely asserted:** the real,
+unmodified Phoenix pipeline was run for a GOOD (7.1) and a BAD (-1.0) case.
+`success=True` in both — identical to what `EW-001` measured before this
+file existed. Nothing in the real pipeline imports or references
+`semantic_state_contract.py`. The semantic layer is preserved and
+distinguishable; Phoenix's own execution decision remains unaware it exists.
+
+**Zero regression, confirmed by the real full suite, not assumed from the
+addition being "purely additive":** 474/474 (the pre-existing sandbox
+baseline) plus the 10 new tests, all passing.
+
+**What this demonstrates, and what it explicitly does not:** the
+information-preservation gap `EW-001` identified is not an inherent
+architectural limitation of Phoenix A's determinism/hash-chain model — a
+minimal, additive extension preserves and cryptographically distinguishes
+the missing semantic information while leaving Phoenix's real execution
+decision completely untouched. This is not a claim that Phoenix A now has
+quality-aware execution; it deliberately does not. Whether this extension
+should ever influence a real decision remains a domain-module question,
+explicitly out of scope. Whether a richer semantic object (confidence
+scores, multi-field assertions) would preserve the same separation as
+cleanly is untested. Whether this pattern generalizes to other
+external-boundary gaps is untested.
+
+`EW-003` is the **eighteenth** claim this session to reach a recorded
+disposition.
+
+**Phase 2 is frozen here, per explicit instruction.** `EW-001`
+(observation), Phase 2A (information-preservation, six framed questions),
+Phase 2B (three architectures against six invariants), and `EW-003`/
+Phase 2C (the real, minimal implementation) together form one complete,
+closed arc — consolidated in full in `PHOENIX_EXTERNAL_GENERALIZATION_v2.md`.
+The next phase is explicitly scoped as independent reproduction — whether
+someone who did not build Phoenix A can reproduce the central semantic
+distinction from the frozen external specification alone — not another
+architectural expansion of Phoenix A itself.
+
+---
+
 ## Attack campaigns, not "the next N attacks"
 
 One claim can take multiple attacks from different families; the useful unit of coverage is the (claim, family) pair, not a flat attack count. First-pass coverage matrix — **not exhaustive by design**, populated only with what's actually been run:
