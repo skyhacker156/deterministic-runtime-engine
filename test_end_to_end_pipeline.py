@@ -9,8 +9,6 @@ RawVentTelemetryPacket -> VentAdapterContract -> BridgeIntegrator -> [Seam Conve
 """
 
 import time
-import hashlib
-import struct
 import uuid
 import numpy as np
 import pytest
@@ -21,39 +19,17 @@ from ordering_barrier import DeterministicOrderingBarrier
 from deterministic_execution_engine import DeterministicExecutionEngine
 from phoenix_a_execution_module import PhoenixAExecutionModule
 from execution_module_contract import ExecutionResult
-from execution_kernel_contract import CoreExecutionFrame as KernelCoreExecutionFrame
+from replay_engine import _bridge_frame_to_kernel_frame as transform_bridge_frame_to_kernel_frame
 
-
-def transform_bridge_frame_to_kernel_frame(bridge_frame, seq_id: int) -> KernelCoreExecutionFrame:
-    """
-    Explicit seam adapter bridging domain frames to runtime kernel frames.
-    Computes the canonical kernel provenance hash over final structured fields 
-    (seq_id, timestamp_ns, payload bytes) to satisfy verify_integrity().
-    """
-    # 1. Construct the contiguous 256-element payload
-    combined_payload = np.concatenate([
-        np.array(bridge_frame.temp_slice, dtype=np.float64),
-        np.array(bridge_frame.seismic_slice, dtype=np.float64),
-        np.array(bridge_frame.ph_slice, dtype=np.float64),
-    ]).astype(np.float64)
-
-    assert combined_payload.shape == (256,), f"Expected payload shape (256,), got {combined_payload.shape}"
-
-    # 2. Establish canonical kernel timestamp in nanoseconds
-    timestamp_ns = int(bridge_frame.timestamp * 1e9)
-
-    # 3. Compute canonical kernel provenance hash matching CoreExecutionFrame.verify_integrity()
-    header_bytes = struct.pack(">QQ", seq_id, timestamp_ns)
-    payload_bytes = combined_payload.tobytes()
-    canonical_hash = hashlib.sha256(header_bytes + payload_bytes).digest()
-
-    # 4. Construct Kernel-compliant CoreExecutionFrame with matching integrity hash
-    return KernelCoreExecutionFrame(
-        seq_id=seq_id,
-        timestamp_ns=timestamp_ns,
-        provenance_hash=canonical_hash,
-        payload=combined_payload,
-    )
+# CI-002 fix: this file previously defined its OWN local seam-conversion
+# helper (temp+seismic+ph order), independently of replay_engine.py's real
+# _bridge_frame_to_kernel_frame (ph+seismic+temp order) -- the only sanctioned
+# seam per ARCHITECTURE_FREEZE_v1.5.md. The two disagreed on channel order,
+# confirmed by direct execution to produce different Kernel payloads and
+# different provenance hashes from the identical Bridge frame. Now imports
+# the real, sanctioned function instead of a local reimplementation, so this
+# file actually exercises the pipeline's real seam rather than a private
+# stand-in that nothing cross-checked against it.
 
 
 def test_end_to_end_pipeline_scrambled_ingestion_to_verified_execution():
