@@ -157,3 +157,49 @@ discovery of the gap between documented claims and actual enforcement? That
 question is not answered here, and answering it would require the
 protocol to leave this project — the one test this document cannot
 perform on itself.
+
+---
+
+## Case studies
+
+**Case Study 1: Phoenix A.** Frozen here. 19 claims traced
+(`CI-001`–`CI-005`, `EW-001`–`EW-004`), full evidence in
+`ADVERSARIAL_METHODOLOGY.md` and `VERIFICATION_COVERAGE_MATRIX.md`,
+classification summary in `GUARANTEE_MATRIX.md`, research-claim framing in
+`PHOENIX_RESEARCH_CLAIM_ASSESSMENT.md`. Four concrete instances where
+following this sequence changed a conclusion conventional "tests pass /
+VERIFIED" reporting would have hidden: `CI-002`, `CI-003`, `CI-005`,
+`EW-004`. This is the protocol's only validation to date, applied by the
+same party that built both the system and the protocol.
+
+**Case Study 2: not yet selected.** The next test of this protocol is
+whether it retains discriminatory power on a real, independently-built
+deterministic system that was not designed around it. Selection criteria,
+stated in advance and deliberately not satisfied by convenience or prior
+familiarity:
+
+- genuinely deterministic execution (same input → same output, verifiably)
+- persistent, replayable state
+- cryptographic or integrity-relevant artifacts (hash chains, signatures,
+  Merkle structures, or equivalent)
+- meaningful architectural claims stated in the project's own
+  documentation — something with a real `VERIFIED`/"guaranteed" surface
+  to extract claims from, not a toy
+- enough real complexity to have seams — multiple modules, a real seam
+  between ingestion and execution, something analogous to Phoenix A's own
+  Bridge→Kernel boundary
+- a **different implementation philosophy** from Phoenix A — different
+  language, different domain, different design lineage, not a
+  reimplementation or close relative of anything already examined here
+
+Explicitly not selected in this document. Choosing a system that
+resembles Phoenix A, or one already familiar in depth, would only
+demonstrate the protocol works on Phoenix-shaped things — the opposite of
+what this case study is for. Selection is a deliberate, separate step.
+
+**The research question this progression is building toward, stated
+precisely:** does Claim-Bounded Verification retain useful discriminatory
+power — does it find real gaps between documented claims and actual
+enforcement — when applied to a system its own author never designed it
+around? One case study cannot answer that. A second, materially
+different one is the next real test.
