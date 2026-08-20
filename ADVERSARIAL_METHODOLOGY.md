@@ -791,6 +791,107 @@ failed" residue.
 ---
 
 
+## CI-002: non-canonical Bridge→Kernel transformation — a documented rule with no test enforcing it
+
+Surfaced during composition-verification scoping, not from an attack — while
+surveying every place in the codebase that consumes `BridgeIntegrator` output,
+looking for the real production seam before deciding what to attack.
+`ARCHITECTURE_FREEZE_v1.5.md` already states the intended architecture
+directly: two distinct `CoreExecutionFrame` classes exist (`bridge_integrator_contract.py`'s
+three-named-slice frame and `execution_kernel_contract.py`'s single-256-payload
+frame), they are explicitly **not interchangeable**, and "the conversion
+between them (`_bridge_frame_to_kernel_frame` in `replay_engine.py`) is the
+only sanctioned seam."
+
+**What a full-repo grep found instead:** exactly two implementations of that
+conversion exist, and only one of them is the sanctioned one.
+`replay_engine.py::_bridge_frame_to_kernel_frame` is real and used by the
+replay/reconstruction path. `test_end_to_end_pipeline.py` defined its own,
+entirely separate, entirely local `transform_bridge_frame_to_kernel_frame()`
+helper — used only by that file's own two tests, never imported anywhere
+else — that reimplements the identical responsibility with the channel
+slices concatenated in **reverse order**: `temp_slice + seismic_slice +
+ph_slice`, versus the real function's `ph_slice + seismic_slice +
+temp_slice`. `BridgeIntegrator`'s own slicing comment (`# Slices: pH [0:86],
+Seismic [86:171], Temperature [171:256]`) independently confirms which order
+is the one the rest of the architecture actually assumes.
+
+**Confirmed by direct execution, not inferred from reading:** built one
+`SanitizedEngineBatch`, ran it through `BridgeIntegrator.verify_and_transform()`
+once to get one `BridgeExecutionFrame`, then fed that identical frame through
+both conversion functions.
+
+```
+replay_engine.py    payload[0:3]    : [0.13010847 0.13010847 0.13010847]
+test_end_to_end.py  payload[0:3]    : [0.24973989 0.24973989 0.24973989]
+Payloads identical? : False
+replay_engine.py    provenance_hash : dfecb92a...
+test_end_to_end.py  provenance_hash : 36151554...
+Hashes identical?    : False
+```
+
+Same Bridge frame, two genuinely different Kernel-level tensors and two
+genuinely different provenance hashes — not a cosmetic difference, a real
+divergence in what data lands at each index of the flat 256-element payload
+the Kernel actually consumes.
+
+**Why this is a composition finding and not just a duplicate-code smell:**
+`CI-001` established that channel identity is preserved *by construction*
+along the real production path — a fixed, hardcoded set of channel names
+feeding a deterministic sort, with no independent verification, but correct
+as actually used. `CI-002` shows that "as actually used" was narrower than it
+looked: the suite's own end-to-end test — the one piece of test coverage
+whose name and docstring claim to validate "the complete closed-loop
+pipeline across all verified contract boundaries" — was not exercising the
+sanctioned seam at all. It was exercising a private, silently-diverging
+stand-in for it. `CI-001`'s "preserved by construction" claim was never
+actually false, but the test suite's *evidence* for the full pipeline's
+correctness was resting on the wrong construction for one hop.
+
+**The precise structural gap:** the project's own architecture had already
+named this exact failure mode and forbidden it ("these are not
+interchangeable... any code that treats them as the same type is a bug"),
+but no test checked that the *rule itself* held — nothing cross-referenced
+`test_end_to_end_pipeline.py`'s local helper against the real,
+already-documented-as-sole-sanctioned function it was standing in for. The
+local helper's own two call sites both used *itself* for construction and
+implicitly relied on *itself* for correctness (shape checks, finiteness
+checks, hash-equality across two runs of the *same* local function) —
+entirely self-consistent, entirely disconnected from the real seam.
+
+**Disposition: fixed, real code change** (`test_end_to_end_pipeline.py`
+only — no core pipeline code touched). The file's local
+`transform_bridge_frame_to_kernel_frame()` definition and its two now-unused
+imports (`hashlib`, `struct`, `execution_kernel_contract.CoreExecutionFrame`)
+were removed; the file now imports `_bridge_frame_to_kernel_frame` directly
+from `replay_engine.py` under the same local alias, so neither of the two
+call sites needed to change. Both tests
+(`test_end_to_end_pipeline_scrambled_ingestion_to_verified_execution`,
+`test_end_to_end_replay_determinism`) pass unchanged after the swap —
+confirming the fix is a clean drop-in and that neither test's assertions
+ever actually depended on which specific ordering was used, only on
+internal self-consistency, which is exactly why the divergence went
+uncaught. Full suite re-run clean afterward: 474/476 (excluding the
+Windows-only DLL-parity file and the two `test_longevity_benchmark.py`
+timeouts, already closed RESOLVED/ENVIRONMENTAL — unrelated to this
+change).
+
+`CI-002` is the **twelfth** claim this session to reach a traced
+disposition, and the first to be a genuine **composition**-level finding
+rather than a single-component attack — the natural next step up from
+`CI-001` in the progression from component verification toward architectural
+verification. **Standing lesson worth naming:** a documented "only one
+sanctioned implementation" rule is not self-enforcing. The rule existed,
+correctly, in `ARCHITECTURE_FREEZE_v1.5.md` before this finding — what was
+missing was a mechanism (a test, a lint rule, an import-boundary check) that
+would have caught a second implementation the moment it was written, rather
+than relying on someone eventually noticing by inspection. Worth considering
+for the next round of composition verification: are there other places in
+the codebase where a "single sanctioned X" rule is stated in documentation
+but not enforced by any test?
+
+---
+
 ## Attack campaigns, not "the next N attacks"
 
 One claim can take multiple attacks from different families; the useful unit of coverage is the (claim, family) pair, not a flat attack count. First-pass coverage matrix — **not exhaustive by design**, populated only with what's actually been run:

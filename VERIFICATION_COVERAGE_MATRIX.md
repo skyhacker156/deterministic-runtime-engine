@@ -43,6 +43,14 @@
 
 ---
 
+## Cross-Surface Composition — Bridge→Kernel Seam Canonicality
+
+| ID | Claim | Status | Evidence | Boundary | Ledger Reference |
+|---|---|---|---|---|---|
+| CI-002 | The Bridge→Kernel transformation (`BridgeExecutionFrame` → `CoreExecutionFrame`) has exactly one implementation across every surface that performs it — as `ARCHITECTURE_FREEZE_v1.5.md` already states: `_bridge_frame_to_kernel_frame` in `replay_engine.py` "is the only sanctioned seam" | VERIFIED (as of fix) | Found by survey, not attack: `test_end_to_end_pipeline.py` defined its own local `transform_bridge_frame_to_kernel_frame()` helper, independently of `replay_engine.py`'s real function, concatenating channel slices in **reverse order** (`temp+seismic+ph` vs. the real function's `ph+seismic+temp`, which also matches `BridgeIntegrator`'s own slicing comment and `ARCHITECTURE_FREEZE_v1.5.md`'s documented data-flow diagram). Confirmed by direct execution, not inferred: identical `BridgeExecutionFrame` input, run through both functions — different `payload` arrays, different `provenance_hash` values. Fixed: `test_end_to_end_pipeline.py` now imports the real `_bridge_frame_to_kernel_frame` from `replay_engine.py` instead of maintaining its own copy; both of that file's tests (`test_end_to_end_pipeline_scrambled_ingestion_to_verified_execution`, `test_end_to_end_replay_determinism`) still pass unchanged, confirming the swap is a clean drop-in — the tests' own assertions never depended on which specific ordering was used, only on internal self-consistency, which is exactly why the divergence was invisible until cross-checked | **Root cause: the project's own architectural rule ("only one sanctioned seam") had no test enforcing it.** Nothing checked that `test_end_to_end_pipeline.py`'s local helper stayed in sync with the real function it was standing in for — the file's own two tests only verified the local helper's output against itself (shape, finiteness, hash-equality across two runs of the *same* local function), never against `replay_engine.py`'s real implementation. This is a **composition** finding, not a component finding: `CI-001` established that channel identity is preserved *by construction* along any single, correctly-used path; `CI-002` shows the codebase did not, in fact, have only one path — a second, independently-written, silently-diverging implementation of the same "sanctioned" responsibility existed and was exercised by the suite's own end-to-end test. Now fixed, but the general risk pattern (a local reimplementation of a "single sanctioned" component, un-cross-checked) is worth a standing regression guard — see disposition | NOT IN LEDGER |
+
+---
+
 ## Generation Identity / Mode B — see `MODE_B_CLAIMS_REGISTRY.md`
 
 | ID | Claim (summary only — see registry for full text) | Status | Evidence | Ledger Reference |
