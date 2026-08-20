@@ -663,8 +663,9 @@ Both real findings `[finding: implementation defect / disposition: fixed + regre
 Selected as the next target after re-establishing suite state on a fresh,
 non-git-tracked sandbox copy of the repo (474/476 passing outside the
 Windows-only Rust-parity file; the two `test_longevity_benchmark.py` timeouts
-left explicitly UNRESOLVED — environment/performance distinction not yet
-established, not treated as a regression). Framed from the full-repo sweep as
+left explicitly UNRESOLVED at that point — environment/performance
+distinction not yet established, not treated as a regression. **Resolved
+below, once the real Windows checkout supplied the missing control.**) Framed from the full-repo sweep as
 a genuine Boundary-Crossing candidate distinct from every hash-chain claim
 attacked so far this session: does Phoenix A actually verify that a channel's
 *meaning* survives the Vent→Bridge→Kernel seam, or does the pipeline merely
@@ -753,6 +754,42 @@ genuinely distinct claim *shape* this session, after cross-record-relationship
 and classification/dispatch.
 
 ---
+
+### `test_longevity_benchmark.py` — UNRESOLVED to RESOLVED/ENVIRONMENTAL
+
+The two timeouts flagged at session start (`test_short_longevity_burn_in_memory_stability`,
+`test_full_longevity_burn_in_100k`, both failing at pytest-timeout's 60s
+ceiling inside `StratifiedTensorPacker.pack_channels_stratified`, in the
+Linux sandbox only) are now closed with a real control, not assumed clean by
+default. The same two tests, same code, ran to completion with no timeout in
+the actual `pytest -v` full-suite run on the real Windows checkout
+(`579.89s`/`9:39` total wall time for the full 479-test suite, both
+longevity tests reporting `PASSED`). `ARCHITECTURE_FREEZE_v1.5.md` already
+documents that this benchmark is deliberately kept out of the fast/CI suite
+and run only via a separate nightly/manual workflow — independent
+confirmation that it was always expected to be resource-heavy, not that
+something regressed.
+
+**Classification: RESOLVED / ENVIRONMENTAL.** The Linux sandbox's 60-second
+per-test ceiling was the cause, not Phoenix A's execution path — same code,
+same inputs, real hardware difference (or resource ceiling) between the two
+environments. **This is not evidence of a Phoenix A performance regression,
+and is not evidence the benchmark passes cleanly under load in general** —
+only that the specific sandbox timeout observed at session start had an
+environmental cause, confirmed by a real control run rather than inferred.
+
+**Test-result classification, stated explicitly per this session's own
+bookkeeping standard** (four distinct states, not collapsed into pass/fail):
+`actual failure` (assertion or exception on real logic) / `actual
+performance problem` (real code is too slow under its own real constraints)
+/ `environment limitation` (this case — sandbox resource ceiling, not code)
+/ `not tested` (no attempt made). Leaving a result in an undifferentiated
+UNRESOLVED state is itself a small ledger gap — worth naming and closing
+explicitly rather than letting it sit as ambiguous "some test somewhere
+failed" residue.
+
+---
+
 
 ## Attack campaigns, not "the next N attacks"
 
