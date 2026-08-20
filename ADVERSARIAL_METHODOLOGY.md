@@ -1430,6 +1430,52 @@ architectural expansion of Phoenix A itself.
 
 ---
 
+## EW-004: independent reproduction of the semantic-preservation property
+
+Phase 3, step 2 of the External Workload Validation campaign — the direct
+application of `CI-005`'s own lesson (delegation to a canonical
+implementation does not by itself provide an independent correctness
+oracle) to this campaign's own evidence. `EW-003` alone was a
+self-consistency check: `semantic_state_contract.py`'s tests confirming
+`semantic_state_contract.py`'s behavior. This phase asked whether someone
+who did not build that implementation could reproduce its central claim
+from the frozen specification alone.
+
+**Constraint, verified structurally, not merely stated:** the reproduction
+harness's only inputs were the frozen `EXTERNAL_WORKLOAD_SPEC.md`, the
+frozen `workload_packets.json`, Phoenix A's real documented ingestion
+interface, and the plain-English semantic-state requirement from
+`PHOENIX_EXTERNAL_GENERALIZATION_v2.md`. It does not import
+`semantic_state_contract.py` — confirmed by grep across both harness
+files: zero `import` statements, only explanatory prose. Its oracle
+(`independent_semantic_fingerprint`) is canonical-JSON serialization
+hashed with SHA-256, deliberately structured differently from
+`semantic_state_contract.py`'s binary `struct.pack` approach.
+
+**All seven framed properties confirmed**, tested against real values
+pulled from the frozen workload rather than freshly invented numbers
+(packet 0's healthy pH, packet 21's under-range fault): distinguishability
+under same-value-different-quality; identical reproduction under
+same-value-same-quality; detection of both value and quality mutation on
+reconstruction; exact disk-reconstruction recovery; Phoenix's real
+execution `success=True` in both cases, matching `EW-001`/`EW-003`'s own
+measurements exactly; structural confirmation that Phoenix's real
+provenance hash and the independent fingerprint never coincide or
+cross-reference each other.
+
+**What this raises confidence in, and what it does not:** this
+strengthens `EW-003`'s specific claim — a second, independently-built
+implementation reproduces the same property. It does not generalize to
+any other claim in this session still resting on single-implementation
+self-consistency, and it does not close Phase 2B's own open item
+(replay-of-quality within Phoenix's real persistence layer) — that
+remains unimplemented in both the original and the independent harness.
+
+`EW-004` is the **nineteenth** claim this session to reach a recorded
+disposition.
+
+---
+
 ## Attack campaigns, not "the next N attacks"
 
 One claim can take multiple attacks from different families; the useful unit of coverage is the (claim, family) pair, not a flat attack count. First-pass coverage matrix — **not exhaustive by design**, populated only with what's actually been run:
