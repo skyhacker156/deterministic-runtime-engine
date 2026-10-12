@@ -357,3 +357,42 @@ policy reaches the call's `MethodInfo` (the Java sanity run S shows this:
   `frameproxy.exe` are not rebuilt (`frameproxy.exe` keeps its C1 hash;
   its source now compiles against the amended oracle package, whose `Frame`
   type and C1 rule are unchanged).
+
+### Amendment 2 committed `fb14d33`; second Java development run `55ccde4`
+
+- Commit 1 of the apply script: `fb14d33` (amendment, checker 1.40 bound,
+  Java warm-up, this log's previous entry), pushed before the warm-up was
+  used. Checked from a clone: all 7 delivered files match.
+- `checker.exe` rebuilt on the operator's machine:
+  `0DD2C6A93E9EE36C2E1A81ED88F80F9017D2C398488882D8BA17355FC6960D25`. The
+  other seven Go binaries were confirmed unchanged. Oracle self-test passed.
+- Java client rebuilt under dependency verification (tasks executed this
+  time); `-check` for `java` as before.
+- Second `java` S run (run tag `d4`), with the warm-up: warm-up
+  `UNIMPLEMENTED` in 574.9 ms, not logged. Measured calls 0-19, client
+  elapsed (ms): 20.7, 46, 34.9, 29.4, 30.1, 47, 27.2, 30.5, 15.6, 15.8,
+  32.2, 31.9, 30, 30.4, 29.9, 30.5, 31.5, 32.2, 28.8, 31.4. Call 0 is no
+  longer above 500 ms (amendment 2, "Check": satisfied). 2,OK x20, MATCH;
+  orphan and mislabeled attempts 0; server log 40 lines, all scenario S,
+  no warm-up call ID. Retry gap 12.7 to 30.9 ms (median 26.9): finding 2
+  persists, as expected.
+
+### Preflight audit before the scored session
+
+- Requested by the operator's review (2026-10-12): freeze inputs, verify
+  the scored script and the checker against the plan, keep the tracks
+  apart, fix the meaning of each result before the run.
+  `PREFLIGHT_AUDIT.md` covers the five points.
+- `harness/run_scored.ps1` written as a repository file so that it is
+  frozen and hashed with everything else. One defect found by reading
+  before any run: client console output would have mixed with
+  `Run-Client`'s return value (the `Start-Bg` class of error); fixed with
+  `Out-Host`.
+- PowerShell 7.4.6 installed in the sandbox from the PowerShell GitHub
+  release. A first dry-run attempt failed because my translation of the
+  script for Linux replaced every backslash, including the `\s` in a
+  regular expression; the translation was redone to change only the six
+  path lines and the repository path. Dry-run results (normal, abort,
+  three refusals) are in `PREFLIGHT_AUDIT.md`, section 2.
+- `HASHES_BEFORE_RUN.txt` is generated on the operator's machine in the
+  same commit as this entry.
