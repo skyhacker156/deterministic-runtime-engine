@@ -396,3 +396,28 @@ policy reaches the call's `MethodInfo` (the Java sanity run S shows this:
   three refusals) are in `PREFLIGHT_AUDIT.md`, section 2.
 - `HASHES_BEFORE_RUN.txt` is generated on the operator's machine in the
   same commit as this entry.
+
+### Freeze `47ff80a` and scored session `764722a`
+
+- Freeze checked from a clone before the run: 37 of 76
+  `HASHES_BEFORE_RUN.txt` entries are files in the commit, all matching;
+  of the 39 operator-only entries, 8 binaries and 2 `stream.go` files
+  match their independently recorded hashes, 28 of 29 JARs match the Gradle
+  verification metadata, and `cs4client.jar` (the client's own build) has
+  no outside record.
+- Scored session `scored_20261012_190314` (19:03:14 to 19:10:15 UTC):
+  preflight verified 76 hashes at `47ff80a`; 44 client steps, no failure;
+  replay IDENTICAL; committed `764722a`. Every predicted row MATCH in r1
+  and r2.
+- Verified from a clone of `764722a`: 59 files re-hash; every row
+  recomputed from the raw logs by a separate script that does not use the
+  checker, with the same results.
+- Reporting policy checked (for `CS4_RESULT.md` section 5): grpc-java
+  `SECURITY.md` refers to `grpc/proposal` `P4-grpc-cve-process.md`
+  (`2d6aff2`, 2023-06-09): private reports to grpc-security@googlegroups.com
+  for suspected vulnerabilities, including when unsure; not for issues that
+  are not security related.
+- `CS4_RESULT.md` written. One correction before delivery: a draft listed
+  A6's state diagram as support for a violation; its edge "failure or
+  pushback: retry" does not exclude an OK response with pushback, so it was
+  moved to the other side of the contract question.
