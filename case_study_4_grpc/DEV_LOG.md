@@ -203,3 +203,80 @@ Open before any Java run: Java client, gate C2 trace, binary JAR hashes.
 
 Still open before any Java run: Java client, gate C2 trace, binary JAR
 hashes. No scored run has been made.
+
+### Gate C2: source trace, grpc-java 1.84.2 (written before any Java run)
+
+Question (plan, gate C2): does any class between the Netty handler and
+`RetriableStream`'s `Sublistener.closed()` handle an OK close first, for
+the harness's client configuration? Configuration: `grpc-netty` 1.84.2
+(unshaded), plaintext, retry enabled, default service config with a retry
+policy for `cs4.Probe` and no `retryThrottling` or hedging policy, no
+client interceptors, no call credentials.
+
+Source: tag `v1.84.2`, `1d2977b0cff51be8da111c8449cb03c0e0b10995`,
+`git archive` of `api`, `core`, `netty`, `util`, `stub`. The extracted
+`RetriableStream.java` hashes to
+`1AF4DD76AC33929AA811B854D422C5FF5E4E302DBB31C519F124B815C28CC5EA`, the
+value gate C3 matched in the published sources JAR. Line numbers are at
+that tag.
+
+Inbound path of a trailers-only response (one HEADERS frame, END_STREAM):
+
+1. `NettyClientHandler` `FrameListener.onHeadersRead` (1079-1088) calls
+   `onHeadersRead(streamId, headers, endStream)` (419-452). Only a header
+   size over the soft limit reports a status here (429-445,
+   RESOURCE_EXHAUSTED); otherwise `stream.transportHeadersReceived` (446).
+2. `NettyClientStream.TransportState.transportHeadersReceived` (343-352):
+   with `endOfStream`, queues a `CancelClientStreamCommand` with a null
+   reason if the outbound side is still open (345-346), then calls
+   `transportTrailersReceived` (348). The headers path (350) is not
+   taken, so `headersRead` is never called and the attempt is not
+   committed. `cancelStream` with a null reason only writes RST_STREAM and
+   reports no status (`NettyClientHandler` 815-831, 821-824).
+3. `Http2ClientStreamTransportState.transportTrailersReceived` (172-188):
+   with no headers received, `validateInitialMetadata` (219-233) checks
+   only that `:status` is present and the content type is gRPC; no check of
+   the gRPC status. Then `statusFromTrailers` (193) and
+   `inboundTrailersReceived` (186).
+4. `AbstractClientStream.TransportState.inboundTrailersReceived`
+   (377-387) calls `transportReportStatus(status, false, trailers)`, which
+   uses `RpcProgress.PROCESSED` (401-404). In 421-449, `status.isOk()` is
+   stored (433) and used only by `deframerClosed` for a partial message
+   (274), which cannot occur with no DATA. `closeListener` (456-466) uses
+   `isOk()` only for stats and the transport tracer (460-462), then calls
+   `listener().closed(status, PROCESSED, trailers)` (464).
+5. Listener wrappers between the transport stream and `RetriableStream`
+   (all `ClientStreamListener` implementations in api, core, netty, util,
+   stub were listed; util and stub have none):
+   - `InternalSubchannel` call-tracing transport (775-798): its
+     `closed` (790-795) records `status.isOk()` in `callTracer`, then
+     forwards the same arguments.
+   - `DelayedStream.DelayedStreamListener.closed` (513-523): queues or
+     runs `realListener.closed` with the same arguments.
+   - `ForwardingClientStreamListener.closed` (33-35): forwards.
+   `ClientCallImpl` and any client interceptors sit above `RetriableStream`
+   (its master listener) and see the close only after the retry decision.
+6. `ManagedChannelImpl.ChannelStreamProvider.newStream` (474-539): with
+   retry enabled (builder default `true`, `ManagedChannelImplBuilder` 198;
+   the harness also calls `enableRetry()`), every call is a `RetryStream`
+   whose attempts come from `delayedTransport.newStream` (530); the
+   retry policy comes from the call's `MethodInfo` (492-494).
+7. `RetriableStream.Sublistener.closed` (908-1058): not cancelled (916),
+   no buffer overflow (933), not MISCARRIED (940), uncommitted (951), not
+   transparent-retry progress (952-983), no hedging (987), so
+   `makeRetryDecision(status, trailers)` (1006) runs with no status check
+   (1065-1097). Commit points in the class, all checked: `headersRead`
+   (893, not called, step 2); `closed` (934, 942, 1054); `cancel` (529;
+   the harness cancels nothing, deadline 10 s); `outboundWireSize` buffer
+   limits (1412-1450; default 1 MiB per RPC and 16 MiB per channel,
+   `ManagedChannelImplBuilder` 120-121, request about 100 bytes);
+   `messagesAvailable` requires a prior commit (1130-1145), and no message
+   arrives.
+
+**C2 result: PASS.** No class on the path handles an OK close before the
+retry decision. X5 is not refuted by source reading; the stop rule does
+not apply.
+
+What C2 does not establish: that the default service config's retry
+policy reaches the call's `MethodInfo` (the Java sanity run S shows this:
+2,OK means the policy is applied), and anything about runtime behaviour.
