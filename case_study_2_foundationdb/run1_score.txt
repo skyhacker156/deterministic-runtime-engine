@@ -1,0 +1,57 @@
+seeds 40 manipulation-check failures [9018, 9058]
+controls: none pass 40 zone pass 40
+dc pass 15 dc fail 25
+primary outcome (dc fails, both controls pass): 25
+signature as fixed (noBestSet>0 in dc, 0 in both controls): 0
+controls with noBestSet>0: none 22 zone 21
+early(<30 simsec) KVSRemoved: seeds with >0  none 2 zone 2 dc 7
+dc exit codes Counter({'1': 25, '0': 15})
+
+by datacenter count:  n_dc: seeds, dc_fail, dc_early_deletion_seeds
+  1 7 0 0
+  2 11 11 7
+  3 10 2 0
+  4 6 6 0
+  6 6 6 0
+
+seed n_dc none zone dc | early KVSRemoved none/zone/dc
+9000 6 P P F | 0 0 0
+9002 2 P P F | 0 0 0
+9004 2 P P F | 0 0 4
+9006 3 P P P | 0 0 0
+9008 2 P P F | 0 0 24
+9010 3 P P P | 0 0 0
+9012 1 P P P | 0 0 0
+9014 3 P P P | 0 0 0
+9016 1 P P P | 0 0 0
+9018 4 P P F | 0 0 0
+9020 1 P P P | 0 0 0
+9022 4 P P F | 0 0 0
+9024 2 P P F | 0 0 0
+9026 2 P P F | 0 0 0
+9028 2 P P F | 0 0 18
+9030 2 P P F | 0 0 0
+9032 6 P P F | 0 0 0
+9034 3 P P F | 0 0 0
+9036 3 P P P | 0 0 0
+9038 3 P P P | 0 0 0
+9040 3 P P P | 0 0 0
+9042 1 P P P | 0 0 0
+9044 6 P P F | 0 0 0
+9046 6 P P F | 2 2 0
+9048 3 P P P | 0 0 0
+9050 2 P P F | 0 0 28
+9052 4 P P F | 0 0 0
+9054 4 P P F | 0 0 0
+9056 2 P P F | 0 0 9
+9058 1 P P P | 0 0 0
+9060 3 P P F | 0 0 0
+9062 2 P P F | 0 0 4
+9064 1 P P P | 0 0 0
+9066 1 P P P | 0 0 0
+9068 4 P P F | 0 0 0
+9070 6 P P F | 0 0 0
+9072 6 P P F | 0 0 0
+9074 4 P P F | 0 0 0
+9076 2 P P F | 1 1 9
+9078 3 P P P | 0 0 0
