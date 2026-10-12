@@ -1,0 +1,4 @@
+go: go1.27.0
+raft360: go.etcd.io/raft/v3 v3.6.0
+raft370: go.etcd.io/raft/v3 v3.7.0
+porcupine: github.com/anishathalye/porcupine v1.3.1
