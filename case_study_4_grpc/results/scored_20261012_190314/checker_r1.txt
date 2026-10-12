@@ -1,0 +1,26 @@
+CONFIG        SCEN   CALLS  PREDICTED              OBSERVED                 VERDICT
+go184         S         20  2,OK                   2,OK x20                 MATCH
+go184         X1        20  1,INVALID_ARGUMENT     1,INVALID_ARGUMENT x20   MATCH
+go184         X2HI      20  1,waited,*             1,waited,* x20           MATCH
+go184         X2MAX     20  1,waited,*             1,waited,* x20           MATCH
+go184         X2NEG     20  1,immediate,UNAVAILABLE 1,immediate,UNAVAILABLE x20 MATCH
+go184         X4P       20                         2,OK x20                 RECORDED
+go184         X4Z       20                         2,OK x20                 RECORDED
+go184         X5        20  1,OK                   1,OK x20                 MATCH
+goMX1         S         20  2,OK                   2,OK x20                 MATCH
+goMX1         X1        20  2,OK                   2,OK x20                 MATCH
+goMX5         S         20  2,OK                   2,OK x20                 MATCH
+goMX5         X5        20  2,OK                   2,OK x20                 MATCH
+java          S         20  2,OK                   2,OK x20                 MATCH
+java          X1        20  2,OK                   2,OK x20                 MATCH
+java          X2HI      20  1,immediate,UNAVAILABLE 1,immediate,UNAVAILABLE x20 MATCH
+java          X2MAX     20  1,waited,*             1,waited,* x20           MATCH
+java          X2NEG     20  1,immediate,UNAVAILABLE 1,immediate,UNAVAILABLE x20 MATCH
+java          X4P       20                         2,OK x20                 RECORDED
+java          X4Z       20                         2,OK x20                 RECORDED
+java          X5        20  2,OK                   2,OK x20                 MATCH
+go168         T         50  OLD_RANGE              OLD_RANGE                MATCH  (delays 200, below0.80 0.760, atmost1.40 1.000, r min 0.012 med 0.534 max 1.000, malformed 0)
+go184         T         50  A6_RANGE               A6_RANGE                 MATCH  (delays 200, below0.80 0.000, atmost1.40 1.000, r min 0.807 med 1.017 max 1.267, malformed 0)
+java          T         50  A6_RANGE               A6_RANGE                 MATCH  (delays 200, below0.80 0.000, atmost1.40 1.000, r min 0.836 med 1.075 max 1.263, malformed 0)
+javaNoJitter  T         50  OLD_RANGE              OLD_RANGE                MATCH  (delays 200, below0.80 0.795, atmost1.40 1.000, r min 0.065 med 0.551 max 1.081, malformed 0)
+orphan server attempts: 0, mislabeled server attempts: 0

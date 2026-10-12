@@ -1,0 +1,222 @@
+[
+  {
+    "config": "go184",
+    "scenario": "S",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "2,OK",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "go184",
+    "scenario": "X1",
+    "calls": 20,
+    "tuples": {
+      "1,INVALID_ARGUMENT": 20
+    },
+    "finals": null,
+    "predicted": "1,INVALID_ARGUMENT",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "go184",
+    "scenario": "X2HI",
+    "calls": 20,
+    "tuples": {
+      "1,waited,*": 20
+    },
+    "finals": null,
+    "predicted": "1,waited,*",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "go184",
+    "scenario": "X2MAX",
+    "calls": 20,
+    "tuples": {
+      "1,waited,*": 20
+    },
+    "finals": null,
+    "predicted": "1,waited,*",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "go184",
+    "scenario": "X2NEG",
+    "calls": 20,
+    "tuples": {
+      "1,immediate,UNAVAILABLE": 20
+    },
+    "finals": null,
+    "predicted": "1,immediate,UNAVAILABLE",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "go184",
+    "scenario": "X4P",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "",
+    "verdict": "RECORDED"
+  },
+  {
+    "config": "go184",
+    "scenario": "X4Z",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "",
+    "verdict": "RECORDED"
+  },
+  {
+    "config": "go184",
+    "scenario": "X5",
+    "calls": 20,
+    "tuples": {
+      "1,OK": 20
+    },
+    "finals": null,
+    "predicted": "1,OK",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "goMX1",
+    "scenario": "S",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "2,OK",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "goMX1",
+    "scenario": "X1",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "2,OK",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "goMX5",
+    "scenario": "S",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "2,OK",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "goMX5",
+    "scenario": "X5",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "2,OK",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "java",
+    "scenario": "S",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "2,OK",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "java",
+    "scenario": "X1",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "2,OK",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "java",
+    "scenario": "X2HI",
+    "calls": 20,
+    "tuples": {
+      "1,immediate,UNAVAILABLE": 20
+    },
+    "finals": null,
+    "predicted": "1,immediate,UNAVAILABLE",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "java",
+    "scenario": "X2MAX",
+    "calls": 20,
+    "tuples": {
+      "1,waited,*": 20
+    },
+    "finals": null,
+    "predicted": "1,waited,*",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "java",
+    "scenario": "X2NEG",
+    "calls": 20,
+    "tuples": {
+      "1,immediate,UNAVAILABLE": 20
+    },
+    "finals": null,
+    "predicted": "1,immediate,UNAVAILABLE",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "java",
+    "scenario": "X4P",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "",
+    "verdict": "RECORDED"
+  },
+  {
+    "config": "java",
+    "scenario": "X4Z",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "",
+    "verdict": "RECORDED"
+  },
+  {
+    "config": "java",
+    "scenario": "X5",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "2,OK",
+    "verdict": "MATCH"
+  }
+]
