@@ -91,6 +91,10 @@ consequence in advance: a clean P2 then shows only that the randomized
 workload did not reach that failure mode on either version. By the rule
 of three, the per-trial probability that this workload reaches the #392
 shape on v3.6.0 is below about 0.15 per cent at 95 per cent confidence.
+That bound assumes the trials are independent draws from one workload,
+and it describes how often this workload reaches the failure pattern.
+It is not a probability that either release contains the bug, and not a
+confidence level for the fix.
 P2 and P3 therefore cannot distinguish v3.7.0 from v3.6.0 with respect
 to #392.
 

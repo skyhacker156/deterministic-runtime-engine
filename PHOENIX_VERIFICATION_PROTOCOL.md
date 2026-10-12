@@ -361,6 +361,21 @@ comment, or outside description.
   oracle-independent verification at all. The August inventory had already
   recorded two narrow independent checks. Corrected above.
 
+**Later runs, 2026-10-11, after this entry was written.** The operator
+re-ran run 3 on a second machine; the score file was identical
+(`run3_score_patrick_rerun.txt`, `c37ff04`). Run 4 used the official
+7.3.77 release, which FoundationDB's releases page marked "Latest" that
+day, under a plan hashed before any 7.3.77 run (`run4_7377/`,
+`b3471f0`). Its restart code and test pair were checked first and are
+unchanged from 7.3.63. Every cluster with no stored region configuration
+disposed every store (9 of 9, 150 of 150 storage servers), no cluster
+with stored regions did (0 of 11), and both controls passed (20 of 20
+each). On seed 10112 the simulator's own zone rename fired in the
+untouched control; excluding it, 8 of 8. Across both releases, 27 of 27
+target clusters lost every storage server's data. The statements above
+that step 3 ran only on 7.3.63, and the bullet on untested releases, are
+left as written; 7.4.x, 8.0.0 and main remain untested.
+
 Evidence: `CS2_STEP3_RESULT.md` and the accompanying bundle in
 `case_study_2_foundationdb/` (plans with pre-run hashes, result tables,
 key trace events, harness); `FOUNDATIONDB_CASE_STUDY_FROZEN.md` and
@@ -376,3 +391,194 @@ one gap between a stated coverage claim and the code, and confirmed the
 consequence by a pre-registered run. It was applied by the protocol's own
 author, with two of seven steps not performed. A full application, by
 another party, is the next real test.
+**A candidate screened out before Case Study 3: git's object model.**
+Recorded so that the history is complete. On 2026-08-24 a working
+session applied the seven steps to git's object model and reproduced
+the pre-2.46.0 gap in which `transfer.fsckObjects` did not apply to
+fetches from a bundle. None of it was committed, pre-registered or
+hashed, and its evidence no longer exists; it is an unregistered pilot
+and supports nothing here. On 2026-10-11 git was screened again as Case
+Study 3, on the guarantee of `git push --atomic` that either every ref
+is updated or, on error, none are. The screen stopped it: git's own
+`Documentation/BreakingChanges.adoc` already states that multi-reference
+writes are not atomic with the "files" backend, so a conventional
+reading of the documentation finds the limitation without the protocol,
+and the most the study could have claimed was a documentation-scope
+result. This is the first time the selection screen stopped a target
+before any construction. Record: `case_study_3_raft/CS3_SELECTION.md`.
+
+**Case Study 3: etcd raft, linearizable reads under `ReadOnlySafe`.**
+Selected 2026-10-11; all steps done 2026-10-11 to 2026-10-12. Applied by
+the same party that wrote this protocol. The design was reviewed three
+times by an outside model before hashing; that review is not an
+independent application. Full records in `case_study_3_raft/`:
+`CS3_SELECTION.md`, `CS3_EXECUTION_PLAN.md` (draft 3), `DEV_LOG.md`,
+`CS3_RESULT.md`, the harness, the schedules, `HASHES_BEFORE_RUN.txt`
+and `results/`.
+
+**Prior internal work.** etcd raft was examined in August 2026
+(`RAFT_CASE_STUDY_BASELINE.md`, `RAFT_RA001`–`RA006`, summarised in
+`FOUR_SYSTEM_SYNTHESIS.md`; the RA files committed in `8ed1f7a`). That
+study asked what etcd raft's TLA+ trace validation can see, and found
+(`RA-003`, `RA-005`) that ReadIndex messages are never traced and that
+trace validation passes with a real ReadIndex in the execution. It did
+not test whether reads are correct, and it was not an application of
+the seven steps. Case Study 3 is its direct follow-up: it tests the
+behaviour that check cannot see. As with FoundationDB, the overlap with
+"anything already examined here" is disclosed rather than treated as
+disqualifying.
+
+**Fit against the selection criteria.** Deterministic execution: the
+library is a deterministic state machine; the harness drives it from a
+seed, with its election randomness, drawn from `crypto/rand`, replaced
+by a seeded source. Persistent, replayable state: the replicated log.
+Integrity artifacts: met only loosely, as with FoundationDB; terms, log
+indices and commit indices, no hash chain. Stated architectural claims:
+met (below). Seams: met; the library leaves network, storage and the
+read-serving step to the application, and the claim lives on that seam.
+Different philosophy: met; Go, a consensus library, quorum-confirmed
+reads. The screen used for this study added five further conditions: a
+narrow falsifiable guarantee, an identifiable enforcement point,
+reachable adversarial states, an independent oracle, and a conventional
+baseline to compare against.
+
+**Step 1 — claims extracted.** Claim origin recorded, per the addition
+from Case Study 2.
+
+| ID | Claim | Origin |
+| --- | --- | --- |
+| `R1` | `ReadOnlySafe` guarantees the linearizability of read-only requests by communicating with a quorum; it is the default and suggested option | Code comment and API documentation (`raft.go` lines 61 and 235 at v3.7.0; 59 and 233 at v3.6.0) |
+| `R2` | Requests can be lost without notice, and retrying ReadIndex is the user's job | API documentation (`node.go` line 223 at both releases) |
+| `R3` | "Efficient linearizable read-only queries served by both the leader and followers" | README (line 27 at v3.7.0) |
+
+`R1` carries no condition. The lease-based mode, by contrast, is
+documented as unsafe under unbounded clock drift.
+
+**Step 2 — enforcement classification.**
+
+| ID | Classification | Basis |
+| --- | --- | --- |
+| `R1` | Behavioral (unit tests); outside the formal model | The leader postpones reads until it has committed in its term, then confirms leadership by heartbeat acknowledgments (`read_only.go`). The TLA+ specification, byte-identical at both releases and unchanged since 2024-04-18, models none of the read path; the August study found the same from the trace side. At v3.7.0 a regression test for duplicated requests exists (`TestReadOnlyDuplicateRequest`); at v3.6.0 it does not. etcd's system-level robustness suite checks linearizability with Porcupine |
+| `R2` | Application obligation | Not enforced by the library. The narrower rule that a retry must use a new context exists only on the unreleased `release-3.6` branch (`5a1e8a2`, 2026-03-09), added after issue #392; v3.7.0 states the restriction is lifted |
+
+**Step 4 — reachability** (done before step 3). Issue #392: with a
+retried or duplicated read request, a stale leader can confirm a later
+read using acknowledgments gathered for an earlier one, returning a
+read index below what linearizability requires. Fixed in v3.7.0 (PR
+#397), absent from v3.6.0. The triggering retry reuses the request
+context. That is compliant with the published contract of both
+releases (`R2`), and every other ingredient is a legal network delay or
+partition. Classification on v3.6.0: currently reachable through
+sanctioned entry points. The duplicate can also come from the network
+itself; whether that is legal is undocumented, so it was excluded.
+
+**Step 3 — bounded construction.** A deterministic simulator driving
+three `RawNode`s through the documented Ready contract, with a
+conformance check on every Ready and every read. The directed scenario
+(P1a) is the #392 sequence in eleven labelled steps, each library
+behaviour, a legal network action, or a compliant caller action. On
+the pinned v3.6.0 release (Go 1.27.0, module checksums verified), 19 of
+21 runs produced a non-linearizable history with the #392 signature, a
+clean conformance check, and an identical replay. Two aborted at setup
+without a verdict.
+
+**Step 5 — performed, with a coverage result.** Workloads were
+generated from a schedule specification written for this study, not
+from the library's test fixtures: 3,000 pre-generated schedules, one
+register, three clients, message loss, delay with a long tail, and node
+isolation and pause. On v3.6.0 (P1b, 2,000 trials, 420,715 reads) the
+workload never reached the #392 signature; on v3.7.0 (P2, 2,000 trials;
+P3, 1,000 leader-targeted trials) no violation occurred. Because P1b
+found nothing on the release known to be faulty, P2 and P3 cannot speak
+to the fix. The plan stated that consequence before the runs.
+
+**Step 6 — partly performed.** The oracle, Porcupine v1.3.1, does not
+import or derive from the code under test and judges client-observed
+histories only. The v3.7.0 build's oracle also judged the recorded
+v3.6.0 P1a history non-linearizable. The 3,000 schedules were
+regenerated independently on a second platform with a different Go
+version and were byte-identical. The harness that drives the library
+was written by the same party, and there was one operator.
+
+**Step 7 — calibrated claims.** This study's rewrites; etcd's
+maintainers have not seen them.
+
+- `R1`, at v3.6.0: under `ReadOnlySafe`, a client that retries a read
+  with the same request context, as the released contract permits, can
+  receive a non-linearizable read after a leadership change. The
+  unconditional comment overstates the release.
+- `R1`, at v3.7.0: no violation found in 3,000 randomized trials, by a
+  harness shown able to detect #392 when a schedule reaches it. The
+  randomized workload did not reach #392 on v3.6.0 either, so this is
+  not evidence that the fix is complete.
+- `R2`: the retry rule differs between the released contract and the
+  `release-3.6` branch. Users of v3.6.0 who follow the released
+  documentation are exposed.
+
+**What following the sequence changed.**
+
+1. Git was stopped at selection by a documentation reading, before any
+   construction.
+2. The claim that the formal baseline does not cover reads was first
+   written as a new finding. It is the project's own August result,
+   corroborated.
+3. The contract question changed the design. The first draft required
+   the harness to obey the `release-3.6` retry rule. Checking the
+   released contracts showed that rule applies to neither release, so
+   the positive control and the main workload could share one
+   compliant workload.
+4. The pre-registered positive control stopped 3,000 clean v3.7.0
+   trials from being read as support for the fix. This is the study's
+   clearest methodological result.
+
+**What this case study does not establish.**
+
+- A new defect. #392 was reported upstream and fixed; the system-level
+  bug behind it (etcd #20418) was found by Antithesis in July 2025.
+- That the #392 fix is complete, or that v3.7.0 reads are linearizable
+  for all legal executions.
+- That the protocol outperforms conventional testing. etcd's robustness
+  suite already checks the same property with the same oracle. This
+  study adds a library-level, contract-compliant reproduction with
+  index attribution.
+- The research question posed above: the party was the same.
+- Lease-based reads, crash and restart, membership changes during
+  reads, clusters other than three voters, or network duplication.
+
+**Errors made during this case study, left visible.**
+
+- Git was first described as barely started; seven steps had been run
+  in August, uncommitted. Etcd raft was first described as a fresh
+  target; the August study existed on the operator's machine,
+  uncommitted, and was found only when the untracked files were listed.
+- The first draft of the success condition required the stale read to
+  be the duplicated request. In #392 it is a different request,
+  confirmed by acknowledgments gathered for the duplicated one.
+- The first draft's network could not reach #392: delays were capped
+  below the length of an election. A long-delay tail was added before
+  hashing. P1b still did not reach it.
+- The disclosed expectation for P1a was 21 of 21, from development
+  runs; it was 19 of 21. The two setup aborts point to a precondition
+  the harness does not check: that every follower knows the leader
+  before the first read.
+- P1a had been run on development builds before hashing. It was
+  disclosed in the plan and the development log, and the reserved
+  seeds were not used, but the scored P1a was not blind.
+- The first operator build failed on a quoting error in the build
+  script, before anything was built.
+
+The pre-run hashes were committed in `a733851` and pushed at
+2026-10-11 23:50:45, before any scored run (`e640291`, `09beef0`,
+`ab528c1`). All 28 entries matched the committed files when checked
+after the push. The push times are GitHub's record; the hashes are not
+otherwise externally timestamped.
+
+**The research question after Case Study 3.** Across two applications to
+systems the protocol was not designed around, it located one coverage
+gap in a code comment and confirmed its consequence (FoundationDB), and
+it reproduced a known, fixed defect and prevented a clean randomized
+result from being over-read (etcd raft). It has not yet found a defect
+that was not already known, has not been applied by another party, and
+has not been compared with conventional testing on equal terms. Those
+remain the next real tests. The paragraph above was written after Case
+Study 2 and is left as written.
