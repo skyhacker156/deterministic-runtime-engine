@@ -1,0 +1,30 @@
+seeds 20 | class X 9 [10016, 10028, 10112, 10116, 10122, 10132, 10170, 10198, 10220] | class unknown (no recovered-config event in control): []
+P3 controls pass: none 20 zone 20 of 20
+P1 class X: dc full deletion 9 | dc phase 2 fails 9 | dc_keep fails 9 | control full deletion none/zone 0 0 of 9
+P2 outside X: full deletion in none/zone/dc 0 0 0 of 11
+dc fail overall 20 | dc fail outside X 11 | early disposals in dc outside X (max) 0
+rename-not-applied failures: [] | seeds where the simulator natively renamed zones in the untouched control: [10112]
+by datacenter count: n_dc seeds dc_fail dc_full_deletion
+  2 20 20 9
+
+seed n_dc regions_at_restart(control) | none zone dc dc_keep | dc restored/early-disposed | none early | zone early
+10012 2 ['0', '1'] | P P F F | 0/0 | 48/0 | 47/0
+10016 2 [] | P P F F | 12/12 | 36/0 | 24/0
+10028 2 [] | P P F F | 14/14 | 39/0 | 30/0
+10032 2 ['1', '0'] | P P F F | 0/0 | 48/0 | 48/0
+10054 2 ['0'] | P P F F | 0/0 | 50/0 | 24/0
+10078 2 ['0'] | P P F F | 0/0 | 21/0 | 9/0
+10112 2 [] | P P F F | 8/8 | 16/0 | 16/0
+10116 2 [] | P P F F | 16/16 | 32/0 | 32/0
+10122 2 [] | P P F F | 5/5 | 15/0 | 20/0
+10132 2 [] | P P F F | 8/8 | 16/0 | 16/0
+10134 2 ['0', '1'] | P P F F | 0/0 | 18/0 | 24/0
+10150 2 ['0', '1'] | P P F F | 0/0 | 24/0 | 16/0
+10152 2 ['0'] | P P F F | 0/0 | 9/0 | 20/0
+10170 2 [] | P P F F | 28/28 | 57/0 | 56/0
+10198 2 [] | P P F F | 32/32 | 95/0 | 64/0
+10212 2 ['0'] | P P F F | 0/0 | 48/0 | 48/0
+10220 2 [] | P P F F | 27/27 | 81/0 | 54/0
+10222 2 ['0', '1'] | P P F F | 0/0 | 42/0 | 21/0
+10226 2 ['0', '1'] | P P F F | 0/0 | 60/0 | 30/0
+10242 2 ['0'] | P P F F | 0/0 | 18/0 | 18/0
