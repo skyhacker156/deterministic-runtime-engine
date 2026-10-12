@@ -1,0 +1,11 @@
+{"dir":"c2s","type":"SETTINGS","stream":0,"end_stream":false,"end_headers":false,"length":0}
+{"dir":"s2c","type":"SETTINGS","stream":0,"end_stream":false,"end_headers":false,"length":6}
+{"dir":"c2s","type":"SETTINGS","stream":0,"end_stream":false,"end_headers":false,"length":0}
+{"dir":"s2c","type":"SETTINGS","stream":0,"end_stream":false,"end_headers":false,"length":0}
+{"dir":"c2s","type":"HEADERS","stream":1,"end_stream":false,"end_headers":true,"length":88,"headers":[[":method","POST"],[":scheme","http"],[":path","/cs4.Probe/Run"],[":authority","127.0.0.1:50052"],["content-type","application/grpc+cs4raw"],["user-agent","grpc-go/1.84.0"],["te","trailers"],["grpc-timeout","9996800u"]]}
+{"dir":"c2s","type":"DATA","stream":1,"end_stream":true,"end_headers":false,"length":67}
+{"dir":"s2c","type":"WINDOW_UPDATE","stream":0,"end_stream":false,"end_headers":false,"length":4}
+{"dir":"c2s","type":"PING","stream":0,"end_stream":false,"end_headers":false,"length":8}
+{"dir":"s2c","type":"PING","stream":0,"end_stream":false,"end_headers":false,"length":8}
+{"dir":"s2c","type":"HEADERS","stream":1,"end_stream":true,"end_headers":true,"length":65,"headers":[[":status","200"],["content-type","application/grpc+cs4raw"],["grpc-status","0"],["grpc-message",""],["grpc-retry-pushback-ms","10"]]}
+{"dir":"c2s","type":"GOAWAY","stream":0,"end_stream":false,"end_headers":false,"length":33}

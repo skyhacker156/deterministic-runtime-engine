@@ -1,0 +1,1 @@
+FRAMEPROXY 127.0.0.1:50052 -> 127.0.0.1:50051, log C:\Users\gosur\phoenix-verify\case_study_4_grpc\results\dev_20261012_op\frames_c1_S.jsonl

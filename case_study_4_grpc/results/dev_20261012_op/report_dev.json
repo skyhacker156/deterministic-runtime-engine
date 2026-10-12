@@ -1,0 +1,72 @@
+{
+  "decision": [
+    {
+      "config": "go184",
+      "scenario": "S",
+      "calls": 20,
+      "tuples": {
+        "2,OK": 20
+      },
+      "finals": {
+        "OK": 20
+      },
+      "predicted": "2,OK",
+      "verdict": "MATCH"
+    },
+    {
+      "config": "goMX1",
+      "scenario": "S",
+      "calls": 20,
+      "tuples": {
+        "2,OK": 20
+      },
+      "finals": {
+        "OK": 20
+      },
+      "predicted": "2,OK",
+      "verdict": "MATCH"
+    },
+    {
+      "config": "goMX1",
+      "scenario": "X1",
+      "calls": 20,
+      "tuples": {
+        "2,OK": 20
+      },
+      "finals": {
+        "OK": 20
+      },
+      "predicted": "2,OK",
+      "verdict": "MATCH"
+    },
+    {
+      "config": "goMX5",
+      "scenario": "S",
+      "calls": 20,
+      "tuples": {
+        "2,OK": 20
+      },
+      "finals": {
+        "OK": 20
+      },
+      "predicted": "2,OK",
+      "verdict": "MATCH"
+    },
+    {
+      "config": "goMX5",
+      "scenario": "X5",
+      "calls": 20,
+      "tuples": {
+        "2,OK": 20
+      },
+      "finals": {
+        "OK": 20
+      },
+      "predicted": "2,OK",
+      "verdict": "MATCH"
+    }
+  ],
+  "timing": null,
+  "orphan_server_attempts": 0,
+  "mislabeled_server_attempts": 0
+}

@@ -1,0 +1,7 @@
+CONFIG        SCEN   CALLS  PREDICTED              OBSERVED                 VERDICT
+go184         S         20  2,OK                   2,OK x20                 MATCH
+goMX1         S         20  2,OK                   2,OK x20                 MATCH
+goMX1         X1        20  2,OK                   2,OK x20                 MATCH
+goMX5         S         20  2,OK                   2,OK x20                 MATCH
+goMX5         X5        20  2,OK                   2,OK x20                 MATCH
+orphan server attempts: 0, mislabeled server attempts: 0

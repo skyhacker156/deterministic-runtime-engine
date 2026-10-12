@@ -1,0 +1,57 @@
+[
+  {
+    "config": "go184",
+    "scenario": "S",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "2,OK",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "goMX1",
+    "scenario": "S",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "2,OK",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "goMX1",
+    "scenario": "X1",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "2,OK",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "goMX5",
+    "scenario": "S",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "2,OK",
+    "verdict": "MATCH"
+  },
+  {
+    "config": "goMX5",
+    "scenario": "X5",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "2,OK",
+    "verdict": "MATCH"
+  }
+]
