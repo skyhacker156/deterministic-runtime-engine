@@ -124,3 +124,82 @@ Open before any Java run: Java client, gate C2 trace, binary JAR hashes.
   `.`; the tidy step passed only because its argument was quoted. Fix:
   every `-modfile=` argument quoted, in the install script and in
   `harness/go/README.md`. The script stopped before any commit.
+
+### Go harness install, second attempt (resume script, stopped before any change)
+
+- The resume script's state check required the four module files to match
+  their delivered hashes. `go mod tidy` adds `// indirect` lines to them by
+  design, so that check could never pass: an error in the check, not in
+  the files. The script stopped before replacing or building anything.
+  The check was changed to require every delivered line (module, `go`,
+  direct requirements, `replace`) to be present after tidy, and to print
+  all four files.
+
+### Go harness install, third attempt: committed `ed57edf`
+
+- All delivered lines present after tidy. Each module file gained only one
+  `// indirect` block: x/sys, x/text, genproto rpc and protobuf at the
+  versions grpc v1.84.0 (or v1.68.2) requires.
+- Oracle self-test passed on the operator's machine (Go 1.27.0, Windows).
+- Commit `ed57edf2992d0c421e76318a9e60015f43b4ea12` on `cs4-grpc`, pushed.
+  Checked from a clone: the 13 delivered non-module files match their
+  hashes; every dependency checksum in `go.sum`, `go168.sum`, `gomx1.sum`
+  and `gomx5.sum` equals the one grpc-go's own `go.sum` records for the
+  same version (0 disagreements). Only grpc's own lines are not in grpc-go's
+  `go.sum`; the go command verified those against the checksum database.
+- Binaries built on the operator's machine (SHA-256):
+
+| Binary | SHA-256 |
+| --- | --- |
+| `checker.exe` | `5460661EAFB082EA786D37C4378D134F18FABE8D5BE5370D43E2C35428CF43C7` |
+| `client168.exe` | `7192D51F01DC6DB68CF33CFE463BB43BD3D44A8DEBD6F86EAB0038C1CC73EBE0` |
+| `client184.exe` | `5F21D5F5410A001E1957466872ED60B003C5A33A9CAD5D71F2EDE23A0B71C116` |
+| `clientmx1.exe` | `9500B3BC40137F673F8E470D8B9553BAE18EA7D5B6B0B814FFA4CF775DA581F8` |
+| `clientmx5.exe` | `7DE1E93B029E18B9594B1EB6F30983E2B749C448D1FC8FEA3CA88E9F846CC0A7` |
+| `frameproxy.exe` | `9928CAD837D8D1BDF4722D20D0FE8445FA0BC84D8CDEE8A4D979EEDFCB217BA7` |
+| `mkmutant.exe` | `BD82C25EFED8BFF6A2F3DCC373291C0892370C515CC7BE5D7761316571DFE31E` |
+| `server.exe` | `43230BC88B64F3260A75ED3239607191EFB07AA5F797C65BB1241CF79A78781C` |
+
+### Operator development runs and gate C1: committed `d26d293`
+
+- First script run: the five client runs completed (100 calls), then the
+  script stopped. Cause: its `Start-Bg` helper both printed a status line
+  and returned the process, so PowerShell returned both and `Stop-Bg`
+  called `WaitForExit` on the text. The server had already been given its
+  stop. Nothing was committed.
+- A continue script reused the completed run data after checking branch,
+  HEAD, binary hashes, that no harness server or proxy was still running,
+  and that the results folder held exactly the eight files the client runs
+  create. A draft of that script also required exactly 200 attempt lines,
+  which assumes the outcome (two attempts per call); it was removed before
+  delivery and the count printed instead (it was 200).
+- Development runs, checker verdicts (server `server_dev.jsonl`):
+
+| Configuration | Scenario | Calls | Predicted | Observed | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| go184 | S | 20 | 2,OK | 2,OK x20 | MATCH |
+| goMX1 | S | 20 | 2,OK | 2,OK x20 | MATCH |
+| goMX1 | X1 | 20 | 2,OK | 2,OK x20 | MATCH |
+| goMX5 | S | 20 | 2,OK | 2,OK x20 | MATCH |
+| goMX5 | X5 | 20 | 2,OK | 2,OK x20 | MATCH |
+
+  Orphan and mislabeled attempts: 0. Gap from attempt 1 to attempt 2
+  (pushback 10 ms), server clock: 10.11 to 11.33 ms across all five runs.
+  grpc-go sent `grpc-previous-rpc-attempts: 1` on every retry.
+  The planted-defect controls for X1 and X5 are therefore detected on the
+  operator's machine; the sanity check passes for `go184`.
+- **Gate C1: PASS.** `go184` (unmodified grpc v1.84.0), retries disabled,
+  through `frameproxy`, separate server log `server_c1.jsonl` (one attempt
+  per call, not analysed as a run). X5 attempt 1 reached the client as one
+  HEADERS frame on stream 1 with END_STREAM and END_HEADERS: `:status 200`,
+  `content-type application/grpc+cs4raw`, `grpc-status 0`,
+  `grpc-message ""`, `grpc-retry-pushback-ms 10`; no DATA. X5 precondition 1
+  holds on the wire.
+- C1 negative control: S attempt 1 through the same path failed the rule
+  for one reason only, `grpc-status = "14", want "0"`.
+- Results: `case_study_4_grpc/results/dev_20261012_op/`, 24 files listed
+  in `SHA256SUMS.txt`; all 24 re-checked from a clone after the push.
+- Commit `d26d293c583c4e268a9b7e25802927e8c7f80882` on `cs4-grpc`, pushed.
+
+Still open before any Java run: Java client, gate C2 trace, binary JAR
+hashes. No scored run has been made.
