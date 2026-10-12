@@ -1,0 +1,21 @@
+jitter=0 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=1 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=2 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=3 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=4 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=5 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=6 version=v3.6.0 verdict= shape392=false conformance=0 replay_match=true aborted="tick 2: expected two held heartbeat responses, got 0" success=false
+jitter=7 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=8 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=9 version=v3.6.0 verdict= shape392=false conformance=0 replay_match=true aborted="tick 1: expected two held heartbeat responses, got 0" success=false
+jitter=10 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=11 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=12 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=13 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=14 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=15 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=16 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=17 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=18 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=19 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true
+jitter=20 version=v3.6.0 verdict=Illegal shape392=true conformance=0 replay_match=true aborted="" success=true

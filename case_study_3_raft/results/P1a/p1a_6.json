@@ -1,0 +1,33 @@
+{
+ "jitter": 6,
+ "version": "v3.6.0",
+ "steps": [
+  "[tick 2] library node 1 leader, term 1, commit 2",
+  "[tick 2] client, compliant client 2 ReadIndex(c2-0) on node 2, forwarded to node 1",
+  "[tick 2] network, legal delay 0 heartbeat responses to node 1 held"
+ ],
+ "ops": [
+  {
+   "id": 0,
+   "client": 2,
+   "kind": "r",
+   "value": 0,
+   "invoke": 13,
+   "return": -1,
+   "invoke_tick": 2,
+   "return_tick": -1,
+   "ctx": "c2-0",
+   "subs": [
+    {
+     "tick": 2,
+     "event": 14,
+     "max_commit": 2
+    }
+   ]
+  }
+ ],
+ "verdict": "",
+ "shape_392": false,
+ "conformance": null,
+ "aborted": "tick 2: expected two held heartbeat responses, got 0"
+}

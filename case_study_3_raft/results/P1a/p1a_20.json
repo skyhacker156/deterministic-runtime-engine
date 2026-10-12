@@ -1,0 +1,123 @@
+{
+ "jitter": 20,
+ "version": "v3.6.0",
+ "steps": [
+  "[tick 2] library node 1 leader, term 1, commit 2",
+  "[tick 2] client, compliant client 2 ReadIndex(c2-0) on node 2, forwarded to node 1",
+  "[tick 2] network, legal delay 2 heartbeat responses to node 1 held",
+  "[tick 12] library node 1 confirmed c2-0; its MsgReadIndexResp to node 2 held (legal delay)",
+  "[tick 12] client, compliant with released contract client 2 timed out, retried ReadIndex(c2-0), same rctx; retry held (legal delay)",
+  "[tick 12] network, legal partition node 1 isolated; node 1 ticks stalled",
+  "[tick 24] library node 2 leader, term 2",
+  "[tick 27] client, compliant client 3 write 42 completed at log index 4",
+  "[tick 27] client, compliant client 1 ReadIndex(c1-2) on node 1 (stale leader)",
+  "[tick 27] network, legal reordering partition healed; delivered held retry of c2-0, then held heartbeat responses",
+  "[tick 27] library node 1 ReadState for c1-2, index 2"
+ ],
+ "ops": [
+  {
+   "id": 0,
+   "client": 2,
+   "kind": "r",
+   "value": 42,
+   "invoke": 15,
+   "return": 174,
+   "invoke_tick": 2,
+   "return_tick": 35,
+   "ctx": "c2-0",
+   "subs": [
+    {
+     "tick": 2,
+     "event": 16,
+     "max_commit": 2
+    },
+    {
+     "tick": 12,
+     "event": 71,
+     "max_commit": 2
+    },
+    {
+     "tick": 22,
+     "event": 86,
+     "max_commit": 2
+    },
+    {
+     "tick": 32,
+     "event": 156,
+     "max_commit": 4
+    }
+   ],
+   "read_states": [
+    {
+     "node": 2,
+     "index": 4,
+     "tick": 35,
+     "event": 173,
+     "term": 2,
+     "pending": [
+      {
+       "ctx": "c2-0",
+       "deliveries": 1
+      }
+     ]
+    }
+   ],
+   "library_bound": 2
+  },
+  {
+   "id": 1,
+   "client": 3,
+   "kind": "w",
+   "value": 42,
+   "invoke": 96,
+   "return": 112,
+   "invoke_tick": 24,
+   "return_tick": 27,
+   "write_index": 4
+  },
+  {
+   "id": 2,
+   "client": 1,
+   "kind": "r",
+   "value": 0,
+   "invoke": 116,
+   "return": 121,
+   "invoke_tick": 27,
+   "return_tick": 27,
+   "ctx": "c1-2",
+   "subs": [
+    {
+     "tick": 27,
+     "event": 117,
+     "max_commit": 4
+    }
+   ],
+   "read_states": [
+    {
+     "node": 1,
+     "index": 2,
+     "tick": 27,
+     "event": 120,
+     "term": 1,
+     "pending": [
+      {
+       "ctx": "c1-2",
+       "deliveries": 1
+      },
+      {
+       "ctx": "c2-0",
+       "deliveries": 2
+      }
+     ]
+    }
+   ],
+   "client_bound": 4,
+   "library_bound": 4,
+   "flag_client": true,
+   "flag_library": true
+  }
+ ],
+ "verdict": "Illegal",
+ "shape_392": true,
+ "conformance": null
+}
