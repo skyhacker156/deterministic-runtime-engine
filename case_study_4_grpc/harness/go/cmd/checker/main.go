@@ -91,7 +91,7 @@ func analyze(args []string) {
 		fmt.Printf("%-13s %-6s %5d  %-22s %-24s %s\n", d.Config, d.Scenario, d.Calls, d.Predicted, strings.Join(obs, "; "), d.Verdict)
 	}
 	for _, t := range rep.Timing {
-		fmt.Printf("%-13s %-6s %5d  %-22s %-24s %s  (delays %d, below0.80 %.3f, atmost1.30 %.3f, r min %.3f med %.3f max %.3f, malformed %d)\n",
+		fmt.Printf("%-13s %-6s %5d  %-22s %-24s %s  (delays %d, below0.80 %.3f, atmost1.40 %.3f, r min %.3f med %.3f max %.3f, malformed %d)\n",
 			t.Config, "T", t.Calls, t.Predicted, t.Class, t.Verdict, t.Delays, t.FracBelowLow, t.FracAtMostHigh, t.MinR, t.MedianR, t.MaxR, t.MalformedCalls)
 	}
 	fmt.Printf("orphan server attempts: %d, mislabeled server attempts: %d\n", rep.OrphanAttempts, rep.MislabeledCalls)

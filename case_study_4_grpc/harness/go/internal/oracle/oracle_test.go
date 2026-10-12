@@ -198,10 +198,18 @@ func TestTimingBoundaries(t *testing.T) {
 		t.Errorf("one r below 0.80: %s, want NEITHER", c)
 	}
 	if c, _, _ := ClassifyTiming(append(fill(190, RHigh), fill(10, 2.0)...)); c != ClassA6 {
-		t.Errorf("exactly 95%% at most 1.30: %s, want A6", c)
+		t.Errorf("exactly 95%% at most RHigh: %s, want A6", c)
 	}
-	if c, _, _ := ClassifyTiming(append(fill(189, 1.0), fill(11, 1.31)...)); c != ClassNeither {
-		t.Errorf("94.5%% at most 1.30: %s, want NEITHER", c)
+	if c, _, _ := ClassifyTiming(append(fill(189, 1.0), fill(11, 1.41)...)); c != ClassNeither {
+		t.Errorf("94.5%% at most 1.40: %s, want NEITHER", c)
+	}
+	// Amendment 2: r = 1.35 is within the A6 upper bound (it was not under the
+	// pre-registered 1.30). Fails if RHigh reverts to 1.30.
+	if c, _, _ := ClassifyTiming(append(fill(180, 1.0), fill(20, 1.35)...)); c != ClassA6 {
+		t.Errorf("10%% of r at 1.35: %s, want A6 under amendment 2", c)
+	}
+	if RHigh != 1.40 {
+		t.Errorf("RHigh = %v, want 1.40 (CS4_AMENDMENT_2.md)", RHigh)
 	}
 	if c, _, _ := ClassifyTiming(append(fill(140, 0.5), fill(60, 1.0)...)); c != ClassOld {
 		t.Errorf("exactly 70%% below 0.80: %s, want OLD", c)

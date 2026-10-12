@@ -25,10 +25,11 @@ const (
 	WaitedAtLeastNs  = 1_800_000_000
 )
 
-// Timing thresholds, r = delay / 200 ms.
+// Timing thresholds, r = delay / 200 ms. RHigh 1.40 per CS4_AMENDMENT_2.md
+// (pre-registered 1.30); RLow and the old-range rule are unchanged.
 const (
 	RLow          = 0.80
-	RHigh         = 1.30
+	RHigh         = 1.40
 	A6MinAtMostHi = 0.95
 	OldMinBelowLo = 0.70
 )
@@ -118,7 +119,7 @@ type TimingResult struct {
 	Calls          int     `json:"calls"`
 	Delays         int     `json:"delays"`
 	FracBelowLow   float64 `json:"frac_r_below_0_80"`
-	FracAtMostHigh float64 `json:"frac_r_at_most_1_30"`
+	FracAtMostHigh float64 `json:"frac_r_at_most_1_40"`
 	MinR           float64 `json:"min_r"`
 	MedianR        float64 `json:"median_r"`
 	MaxR           float64 `json:"max_r"`

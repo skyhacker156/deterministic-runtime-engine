@@ -280,3 +280,80 @@ not apply.
 What C2 does not establish: that the default service config's retry
 policy reaches the call's `MethodInfo` (the Java sanity run S shows this:
 2,OK means the policy is applied), and anything about runtime behaviour.
+
+### Java client: committed `8f0d6b2`
+
+- Gradle 8.14.3 wrapper generated in the sandbox (`--no-validate-url`,
+  since the sandbox cannot reach gradle.org; `validateDistributionUrl` set
+  back to `true` before delivery). On the operator's machine the delivered
+  `gradle-wrapper.jar` matched Gradle's published hash
+  (`7D3A4AC4DE1C32B59BC6A4EB8ECB8E612CCD0CF1AE1E99F66902DA64DF296172`) and
+  `distributionSha256Sum=bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531`
+  was pinned from Gradle's published value.
+- Sandbox compile check: `Client.java` compiled with no errors or
+  `-Xlint:all` warnings against grpc-api 1.84.2 built from source
+  (`api/src/main` and `api/src/context`). It could not run in the sandbox
+  (no Netty).
+- Operator build: `dependencies --write-locks`, then
+  `--write-verification-metadata sha256 installDist`, then a verifying
+  `installDist`, which reported its tasks up to date; whether that build
+  re-checked the artifacts was not shown in its output.
+  `gradle.lockfile`: grpc 1.84.2, Netty 4.2.16.Final. 29 runtime JARs.
+- **Gate C3, binary half (amendment 1, "record the SHA-256 of every grpc
+  binary JAR"):** the five grpc JARs in `verification-metadata.xml` equal
+  the hashes the build printed (checked from a clone):
+
+| JAR | SHA-256 |
+| --- | --- |
+| `grpc-api-1.84.2.jar` | `457897231C31FDAE557D853F58739F35D3C752373115B523913026631882A82B` |
+| `grpc-context-1.84.2.jar` | `964BAF971597969A5B8E134B3FE9ECF22FD5BCB0520DF8BBACD704AD34026B59` |
+| `grpc-core-1.84.2.jar` | `1308DF2B6CB572549002C9DD31BE0FEC8E4E9FAAF6F6F2D8C3EE0D790C4D47E3` |
+| `grpc-netty-1.84.2.jar` | `C98709AACF61D762C945B2E2B2FC2A849D3F7467E269EA133EF90F2250BCB3DF` |
+| `grpc-util-1.84.2.jar` | `D7521C1973ACC173DD569A3D8B466DACC3C56E0D671DAC28C84CCDE594C22059` |
+
+- Runtime checks, no calls (`-check`): `java`: grpc 1.84.2,
+  `io.grpc.netty.NettyChannelBuilder`, variable unset, jitter flag `true`,
+  `RetriableStream` loaded from `grpc-core-1.84.2.jar` (`1308DF2B...`).
+  `javaNoJitter` with the variable `false`: jitter flag `false`, same JAR.
+  `javaNoJitter` without the variable: refused, exit 2.
+
+### Java development run, scenario S: committed `c7aab89`
+
+- `java` S, 20 calls: 2,OK x20, MATCH. Orphan and mislabeled attempts 0.
+  The default service config's retry policy reaches the Java call (the
+  point gate C2 left open). `javaNoJitter` was not run on S: the plan uses
+  it for the timing track only and the checker has no S prediction for it.
+- grpc-java also sent `grpc-previous-rpc-attempts: 1` on each retry.
+- **Finding 1, first-call latency.** Client elapsed, `java` S calls 0-19
+  (ms): 608.4, 59.0, then 19.8 to 32.3. `go184` S: 10.5 to 14.4, call 0
+  14.4. The plan's *immediate* class for X2 is below 500 ms, so Java's call
+  0 would probably class as *other* in X2HI and X2NEG.
+- **Finding 2, late Java retries.** Server gap attempt 1 to attempt 2,
+  pushback 10 ms: `java` 16.3 to 40.2 ms (median 27.4); Go 10.1 to 11.3 ms.
+  Cause not established (consistent with about 15.6 ms timer granularity on
+  Windows). On the timing track's 200 ms base, up to 30 ms adds up to 0.15
+  to *r*, against a 0.10 margin between A6's 1.20 and the pre-registered
+  1.30 bound.
+- **Decision (operator, 2026-10-12):** both changes, as
+  `CS4_AMENDMENT_2.md`: a Java warm-up call to the unregistered method
+  `cs4.Probe/Warmup`, and the A6 upper bound raised from 1.30 to 1.40 for
+  every configuration. Made from S data only, before any X2 or T data
+  exists for any subject configuration.
+
+### Amendment 2 applied (this commit)
+
+- `internal/oracle/oracle.go`: `RHigh` 1.40; report field
+  `frac_r_at_most_1_40`; checker column `atmost1.40`. Self-test passes; it
+  now includes r = 1.35 (A6 under 1.40, not under 1.30) and pins `RHigh`.
+  With `RHigh` reverted to 1.30 in a scratch copy the self-test fails.
+- `harness/java/src/main/java/cs4/Client.java`: warm-up call before the
+  measured calls (same `call` code, method `cs4.Probe/Warmup`, must end
+  `UNIMPLEMENTED`, not logged). Compiles with no `-Xlint:all` warnings
+  against grpc-api 1.84.2 source. grpc-go v1.84.0 answers an unknown method
+  of a known service with `UNIMPLEMENTED` without invoking a handler
+  (`server.go` 1592-1614), and the CS4 server sets no unknown-service
+  handler.
+- Rebuilt: `checker.exe` and the Java client. Server, Go clients and
+  `frameproxy.exe` are not rebuilt (`frameproxy.exe` keeps its C1 hash;
+  its source now compiles against the amended oracle package, whose `Frame`
+  type and C1 rule are unchanged).

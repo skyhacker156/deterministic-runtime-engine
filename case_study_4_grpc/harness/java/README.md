@@ -23,6 +23,10 @@ Labels (`-client`), checked at startup against the runtime:
 | `java` | unset | `true` |
 | `javaNoJitter` | `false` | `false` |
 
+Before its measured calls the client makes one warm-up call to the
+unregistered method `cs4.Probe/Warmup`, which must end `UNIMPLEMENTED` and is
+not logged (`../../CS4_AMENDMENT_2.md`).
+
 The client also refuses to run unless grpc is 1.84.2, the channel builder
 is `io.grpc.netty.NettyChannelBuilder`, and the system property of the same
 name is unset.

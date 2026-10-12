@@ -80,6 +80,14 @@ public final class Client {
           .setResponseMarshaller(RAW)
           .build();
 
+  /**
+   * CS4_AMENDMENT_2.md: a method the server does not register. One call to it
+   * warms the JVM, channel and retry path before the measured calls; the
+   * grpc-go server answers UNIMPLEMENTED without reaching the CS4 handler.
+   */
+  static final MethodDescriptor<byte[], byte[]> WARMUP =
+      METHOD.toBuilder().setFullMethodName("cs4.Probe/Warmup").build();
+
   /** Retry policy as in harness/go/internal/cs4 ServiceConfig: no throttling, no hedging. */
   static Map<String, Object> serviceConfig(boolean timing) {
     Map<String, Object> retry = new TreeMap<>();
@@ -202,13 +210,19 @@ public final class Client {
         .defaultServiceConfig(serviceConfig(sc[1] == 1))
         .build();
     Map<String, Integer> tally = new TreeMap<>();
+    String[] wu = call(ch, WARMUP, new byte[0], 10000);
+    if (!wu[0].equals("UNIMPLEMENTED")) {
+      ch.shutdownNow();
+      fail("warm-up call ended with " + wu[0] + " (" + wu[2] + "), need UNIMPLEMENTED");
+    }
+    System.out.printf("WARMUP cs4.Probe/Warmup %s in %.1f ms (not logged)%n", wu[0], Long.parseLong(wu[1]) / 1e6);
     try (PrintWriter w = new PrintWriter(Files.newBufferedWriter(Paths.get(out), StandardCharsets.UTF_8,
         StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE))) {
       for (int i = 0; i < n; i++) {
         String id = String.format("%s.%s.%s.%03d", run, label, scen, i);
         String body = "{\"call_id\":" + json(id) + ",\"scenario\":" + json(scen)
             + ",\"client\":" + json(label) + "}";
-        String[] r = call(ch, body.getBytes(StandardCharsets.UTF_8), sc[0]);
+        String[] r = call(ch, METHOD, body.getBytes(StandardCharsets.UTF_8), sc[0]);
         tally.merge(r[0], 1, Integer::sum);
         w.println("{\"client\":" + json(label) + ",\"scenario\":" + json(scen) + ",\"call_id\":" + json(id)
             + ",\"final_code\":" + json(r[0]) + ",\"elapsed_ns\":" + r[1] + ",\"message\":" + json(r[2]) + "}");
@@ -225,12 +239,13 @@ public final class Client {
   }
 
   /** One server-streaming call. Returns {final code name, elapsed ns, message}. */
-  static String[] call(ManagedChannel ch, byte[] body, long deadlineMs) throws Exception {
+  static String[] call(ManagedChannel ch, MethodDescriptor<byte[], byte[]> method, byte[] body,
+      long deadlineMs) throws Exception {
     CompletableFuture<Status> done = new CompletableFuture<>();
     AtomicInteger msgs = new AtomicInteger();
     long t0 = System.nanoTime();
     ClientCall<byte[], byte[]> c =
-        ch.newCall(METHOD, CallOptions.DEFAULT.withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS));
+        ch.newCall(method, CallOptions.DEFAULT.withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS));
     c.start(new ClientCall.Listener<byte[]>() {
       @Override
       public void onMessage(byte[] message) {
