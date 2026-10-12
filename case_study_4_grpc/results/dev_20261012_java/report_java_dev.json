@@ -1,0 +1,20 @@
+{
+  "decision": [
+    {
+      "config": "java",
+      "scenario": "S",
+      "calls": 20,
+      "tuples": {
+        "2,OK": 20
+      },
+      "finals": {
+        "OK": 20
+      },
+      "predicted": "2,OK",
+      "verdict": "MATCH"
+    }
+  ],
+  "timing": null,
+  "orphan_server_attempts": 0,
+  "mislabeled_server_attempts": 0
+}

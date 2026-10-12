@@ -1,0 +1,13 @@
+[
+  {
+    "config": "java",
+    "scenario": "S",
+    "calls": 20,
+    "tuples": {
+      "2,OK": 20
+    },
+    "finals": null,
+    "predicted": "2,OK",
+    "verdict": "MATCH"
+  }
+]
