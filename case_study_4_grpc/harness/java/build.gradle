@@ -1,0 +1,29 @@
+// CS4 Java client. grpc-java 1.84.2 from Maven Central (CS4_AMENDMENT_1.md).
+// Dependency versions are locked (gradle.lockfile) and every artifact's
+// SHA-256 is verified (gradle/verification-metadata.xml).
+plugins {
+    id 'application'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'io.grpc:grpc-api:1.84.2'
+    runtimeOnly 'io.grpc:grpc-core:1.84.2'
+    runtimeOnly 'io.grpc:grpc-netty:1.84.2'
+}
+
+dependencyLocking {
+    lockAllConfigurations()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+    options.encoding = 'UTF-8'
+}
+
+application {
+    mainClass = 'cs4.Client'
+}
