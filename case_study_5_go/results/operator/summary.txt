@@ -1,0 +1,3 @@
+W1 MATCH F0C0A0D33BA94F4D2C5DBC887334CE678B21813504DDB3AAFCB06E60A5A667C4
+installed go version go1.27.0 windows/amd64 C:\Program Files\Go
+W2 equal 15636 differs 0 missing_in_install 0 extra_in_install 0

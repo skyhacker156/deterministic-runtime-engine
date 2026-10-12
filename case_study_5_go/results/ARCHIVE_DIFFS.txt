@@ -1,0 +1,35 @@
+== G1a vs K: entries 15636 vs 15636; only in first 0; only in second 0; content differs 1
+  differs go/src/fmt/print.go
+== G1a vs B1: entries 15636 vs 15636; only in first 0; only in second 0; content differs 11
+  differs go/bin/go.exe
+  differs go/bin/gofmt.exe
+  differs go/pkg/tool/windows_amd64/asm.exe
+  differs go/pkg/tool/windows_amd64/cgo.exe
+  differs go/pkg/tool/windows_amd64/compile.exe
+  differs go/pkg/tool/windows_amd64/cover.exe
+  differs go/pkg/tool/windows_amd64/fix.exe
+  differs go/pkg/tool/windows_amd64/link.exe
+  differs go/pkg/tool/windows_amd64/preprofile.exe
+  differs go/pkg/tool/windows_amd64/vet.exe
+  differs go/src/internal/buildcfg/zbootstrap.go
+== G3 vs B2: entries 17350 vs 17350; only in first 0; only in second 0; content differs 10
+  differs go/bin/go
+  differs go/pkg/tool/linux_amd64/asm
+  differs go/pkg/tool/linux_amd64/cgo
+  differs go/pkg/tool/linux_amd64/compile
+  differs go/pkg/tool/linux_amd64/cover
+  differs go/pkg/tool/linux_amd64/fix
+  differs go/pkg/tool/linux_amd64/link
+  differs go/pkg/tool/linux_amd64/preprofile
+  differs go/pkg/tool/linux_amd64/vet
+  differs go/src/internal/buildcfg/zbootstrap.go
+== g1a/go vs b1/go
+8c8
+< const DefaultGOAMD64 = `v1`
+---
+> const DefaultGOAMD64 = `v3`
+== g3/go vs b2/go
+22c22
+< const DefaultCGO_ENABLED = ""
+---
+> const DefaultCGO_ENABLED = "1"
