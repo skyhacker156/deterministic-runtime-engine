@@ -1,0 +1,7 @@
+Building Go cmd/dist using /usr/local/go. (go1.24.7 linux/amd64)
+Building Go toolchain1 using /usr/local/go.
+Building Go bootstrap cmd/go (go_bootstrap) using Go toolchain1.
+Building Go toolchain2 using go_bootstrap and Go toolchain1.
+Building Go toolchain3 using go_bootstrap and Go toolchain2.
+Building commands for host, linux/amd64.
+Building packages and commands for target, windows/amd64.

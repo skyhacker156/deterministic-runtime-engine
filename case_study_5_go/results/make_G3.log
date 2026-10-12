@@ -1,0 +1,15 @@
+Building Go cmd/dist using /usr/local/go. (go1.24.7 linux/amd64)
+Building Go toolchain1 using /usr/local/go.
+Building Go bootstrap cmd/go (go_bootstrap) using Go toolchain1.
+Building Go toolchain2 using go_bootstrap and Go toolchain1.
+Building Go toolchain3 using go_bootstrap and Go toolchain2.
+Building packages and commands for linux/amd64.
+Packaging archives for linux/amd64.
+distpack: 7002403d7cc44529 go1.27.0.src.tar.gz
+distpack: 675c26c449cbb18f go1.27.0.linux-amd64.tar.gz
+distpack: ce4a736434505143 v0.0.1-go1.27.0.linux-amd64.zip
+distpack: 58528cce1848ddf4 v0.0.1-go1.27.0.linux-amd64.mod
+distpack: 07dd86d861acf597 v0.0.1-go1.27.0.linux-amd64.info
+---
+Installed Go for linux/amd64 in /tmp/claude-0/-home-claude/fe52183b-71b9-59e5-884d-5b79718592ce/scratchpad/cs5work2/g3/go
+Installed commands in /tmp/claude-0/-home-claude/fe52183b-71b9-59e5-884d-5b79718592ce/scratchpad/cs5work2/g3/go/bin
