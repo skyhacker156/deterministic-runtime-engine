@@ -128,7 +128,10 @@ feasibility failure and the test is NOT weakened to pass:
   (AdminServer `/commands/zabstate` + `lastProcessedZxid`, or 4lw `srvr`).
 - G5 session id unchanged, never `Expired` (watcher state log).
 - G6 read result: data bytes, `Stat.mzxid`, reply-header zxid.
-- G7 roles (leader / S1 / S2) at each step.
+- G7 roles (leader / S1 / S2) at each step, AND confirmation that C's
+  step-4 reconnect landed on the intended behind-follower S2 (not S1, not a
+  caught-up server) — recorded from C's remote socket address and matched to
+  S2's identity.
 
 ## Scoring
 
@@ -181,6 +184,14 @@ after this plan's run, never from source reading alone.
   relied on.
 - Proxy B on C's client link to S1 cuts the connection immediately after the
   event is delivered (step 3), before any ordinary reply.
+- **Reconnect target forced to S2.** `StaticHostProvider` shuffles the connect
+  string and picks an arbitrary server, so the harness must leave S2 as the
+  only reachable server at reconnect or C may land back on S1 or on a
+  caught-up server — a read served fresh there scores as a spurious refutation
+  (outcome 2) unrelated to H1. C's connect string contains only S1 and S2
+  (never S3); at step 3 Proxy B both cuts and blackholes S1, leaving S2 as the
+  sole option. (Alternatively, narrow C's list to S2 via `updateServerList`
+  before the cut.) G7 confirms the landing.
 - Client built with `TestableZooKeeper` for G2.
 
 ## Reporting route
