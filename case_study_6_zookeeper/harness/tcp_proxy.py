@@ -1,28 +1,43 @@
 #!/usr/bin/env python3
 """
-CS6 controllable TCP proxy. Serves as Proxy A (node 2's learner channel to the
-leader's quorum port) and Proxy B (client -> node 1). Python stdlib only.
+CS6 / CS6-SF1 controllable TCP proxy. Serves as Proxy A (node 2's learner
+channel to the leader's quorum port) and Proxy B (client -> node 1).
+Python stdlib only.
 
 States:
-  PASS - forward bytes both ways normally.
-  HOLD - blackhole: keep live TCP connections OPEN but stop moving bytes, so the
-         peer does not see a close and waits for its own application read timeout.
-         Use for Proxy A (follower learner channel) to get the full serving
-         window bounded by syncLimit * tickTime.
-  CUT  - close all live proxied connections and refuse new ones (immediate FIN).
-         Use for Proxy B (client -> node 1) so the client fails over fast.
+  PASS  - forward bytes both ways normally.
+  HOLD  - blackhole: keep live TCP connections OPEN but stop moving bytes, so the
+          peer does not see a close and waits for its own application read timeout.
+          Use for Proxy A (follower learner channel) to get the full serving
+          window bounded by syncLimit * tickTime. (CS6)
+  CUT   - close all live proxied connections and refuse new ones (immediate FIN).
+          Use for Proxy B (client -> node 1) so the client fails over fast. (CS6)
+  DELAY - forward both ways but add DELAY_MS latency to the upstream->client
+          direction ONLY, keeping the connection open and quorum intact. (CS6-SF1)
+          On Proxy A, upstream = leader and client = node 2 (the learner dials in),
+          so this delays leader->follower traffic (proposals/commits): node 2 lags
+          on Z while still connected and revalidation-capable. The follower->leader
+          direction (ACKs, ping responses) stays immediate so the leader keeps the
+          follower in its view. Keep DELAY_MS < syncLimit * tickTime (with margin)
+          or the follower drops out of quorum -- the usable band is found in the
+          SF1 pilot (CS6_SF1_PLAN.md, hash 2580427C).
 
 Control: line-oriented control port. Send one of:
-  pass | hold | cut | status
+  pass | hold | cut | delay <ms> | status
 
 Every state change and connection open/close is logged to stderr with a
-millisecond timestamp (explicit partition-state record for the pilot).
+millisecond timestamp (explicit partition/delay-state record for the pilot).
 
 Usage:
   python -I tcp_proxy.py --name A --listen 12883 --target 127.0.0.1:2883 --control 13001
   python -I tcp_proxy.py --name B --listen 12181 --target 127.0.0.1:2181 --control 13002
+
+Control examples (node 2 learner channel, Proxy A on 13001):
+  printf 'delay 1500\n' | <send to 127.0.0.1:13001>   # lag leader->follower by 1.5s
+  printf 'pass\n'       | <send to 127.0.0.1:13001>   # recover (full speed)
 """
 import argparse
+import collections
 import select
 import socket
 import sys
@@ -30,6 +45,7 @@ import threading
 import time
 
 STATE = "PASS"
+DELAY_MS = 0
 STATE_LOCK = threading.Lock()
 LIVE = set()
 LIVE_LOCK = threading.Lock()
@@ -53,9 +69,17 @@ def get_state():
 
 
 def bridge(client, upstream):
-    """Pump both directions; forward only while PASS, park while HOLD, stop on CUT."""
+    """Pump both directions.
+       PASS : forward both immediately.
+       HOLD : park (no bytes either way); connections stay open.
+       CUT  : stop (sockets are closed by cut_live).
+       DELAY: client->upstream immediate; upstream->client held by DELAY_MS.
+    On Proxy A, client = node 2 (learner, dialed in), upstream = leader, so the
+    delayed direction is leader->follower. Single thread per connection: the
+    delayed direction uses an in-loop timed queue, so the prompt direction is
+    never blocked by the delay."""
     socks = [client, upstream]
-    peer = {client: upstream, upstream: client}
+    dq = collections.deque()  # (due_monotonic, bytes) pending for upstream->client
     try:
         while True:
             st = get_state()
@@ -64,7 +88,15 @@ def bridge(client, upstream):
             if st == "HOLD":
                 time.sleep(0.1)
                 continue
-            r, _, x = select.select(socks, [], socks, 0.2)
+
+            # Wake early enough to flush the next delayed chunk on time.
+            now = time.monotonic()
+            if dq:
+                timeout = max(0.0, min(0.2, dq[0][0] - now))
+            else:
+                timeout = 0.2
+
+            r, _, x = select.select(socks, [], socks, timeout)
             if x:
                 break
             for s in r:
@@ -74,8 +106,22 @@ def bridge(client, upstream):
                     return
                 if not b:
                     return
+                if s is client:
+                    # follower -> leader: always immediate
+                    try:
+                        upstream.sendall(b)
+                    except OSError:
+                        return
+                else:
+                    # leader -> follower: delay by DELAY_MS while in DELAY, else immediate
+                    d = DELAY_MS if get_state() == "DELAY" else 0
+                    dq.append((time.monotonic() + d / 1000.0, b))
+
+            # Flush any upstream->client chunks whose delay has elapsed (FIFO, ordered).
+            now = time.monotonic()
+            while dq and dq[0][0] <= now:
                 try:
-                    peer[s].sendall(b)
+                    client.sendall(dq.popleft()[1])
                 except OSError:
                     return
     finally:
@@ -136,7 +182,7 @@ def cut_live():
 
 
 def control_loop(control_port):
-    global STATE
+    global STATE, DELAY_MS
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", control_port))
@@ -146,19 +192,37 @@ def control_loop(control_port):
         c, _ = srv.accept()
         try:
             cmd = c.recv(256).decode("utf-8", "replace").strip().lower()
-            if cmd in ("pass", "hold", "cut"):
+            parts = cmd.split()
+            head = parts[0] if parts else ""
+            if head in ("pass", "hold", "cut"):
                 with STATE_LOCK:
-                    STATE = cmd.upper()
-                log("STATE -> %s" % STATE)
-                if cmd == "cut":
+                    STATE = head.upper()
+                log("STATE -> %s" % get_state())
+                if head == "cut":
                     cut_live()
-                c.sendall(("ok %s\n" % cmd).encode())
-            elif cmd == "status":
+                c.sendall(("ok %s\n" % head).encode())
+            elif head == "delay":
+                try:
+                    ms = int(parts[1])
+                    if ms < 0:
+                        raise ValueError
+                except (IndexError, ValueError):
+                    c.sendall(b"err usage: delay <ms>  (non-negative integer)\n")
+                else:
+                    with STATE_LOCK:
+                        STATE = "DELAY"
+                        DELAY_MS = ms
+                    log("STATE -> DELAY (%d ms; upstream->client / leader->follower)" % ms)
+                    c.sendall(("ok delay %d\n" % ms).encode())
+            elif head == "status":
                 with LIVE_LOCK:
                     live = len(LIVE) // 2
-                c.sendall(("state=%s live=%d accepted=%d at=%s\n" % (get_state(), live, ACCEPTED, ts())).encode())
+                with STATE_LOCK:
+                    st, dms = STATE, DELAY_MS
+                c.sendall(("state=%s delay_ms=%d live=%d accepted=%d at=%s\n"
+                           % (st, dms, live, ACCEPTED, ts())).encode())
             else:
-                c.sendall(b"err unknown (pass|hold|cut|status)\n")
+                c.sendall(b"err unknown (pass|hold|cut|delay <ms>|status)\n")
         except OSError:
             pass
         finally:
