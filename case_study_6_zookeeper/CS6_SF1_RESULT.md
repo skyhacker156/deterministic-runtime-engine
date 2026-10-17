@@ -33,7 +33,15 @@ This does **not** prove SSI holds. It establishes that this fault model (DELAY o
 - First failover-read error was `ConnectionLossException` in all instrumented trials (transient failover, not a hard refusal); the read eventually succeeded (not `refused`).
 
 ### Mechanism-established (source + behavior)
-- **Primary barrier — zxid reconnect gate.** The client's session zxid advances to Z within ~ms of the watch notification, so the session-preserving reconnect to node2 carries `lastSeenZxid = Z`. ZooKeeper's reconnect path refuses/defers a server whose `lastProcessedZxid` is behind the client's last-seen zxid, so node2 must reach Z before it serves this session — foreclosing a pre-Z read. This is the same gate identified in CS6.
+- **Primary barrier — zxid reconnect gate.** Verified against the pinned revision (ZooKeeper 3.9.6, tag `release-3.9.6` = commit `a355171b`, confirmed `git rev-parse HEAD`). The client's session zxid advances to Z within ~ms of the watch notification, so the session-preserving reconnect carries `lastSeenZxid = Z`. In the session connect-request path, `zookeeper-server/.../server/ZooKeeperServer.java:1504`:
+  ```java
+  if (request.getLastZxidSeen() > zkDb.dataTree.lastProcessedZxid) {
+      String msg = "Refusing session(...) ... it has seen zxid 0x<Z> our last zxid is 0x<...> client must try another server";
+      LOG.info(msg);
+      throw new CloseRequestException(msg, ServerCnxn.DisconnectReason.CLIENT_ZXID_AHEAD);   // :1516
+  }
+  ```
+  While node2's `lastProcessedZxid < Z`, node2 **refuses** the ahead-zxid session connect (`CLIENT_ZXID_AHEAD`). The client observes this as a closed connection — which is exactly the `firstReadError = ConnectionLossException` recorded in 10/10 instrumented trials — and retries. With the server list constrained to node2, it retries node2 until node2's `lastProcessedZxid` reaches Z, after which the connect is accepted and the read returns Z. The observed ConnectionLoss signature is the client-side manifestation of line 1516. This is the same gate CS6 identified (`ZooKeeperServer.java:1504/1516`), now shown to foreclose the connected-lagging-follower path — not only the hard-partition path.
 
 ### Inference / not established
 - **Secondary revalidation latency.** The ~5 s of blocking after node2's data catch-up (`serveAfterCatchupMs ≈ 5000`, 6/10) is consistent with global-session revalidation routing through node2's delayed learner channel — the same mobility-cost family as CS6's second barrier. But because `clientDemandedZ=true` in every trial, the zxid gate alone already forces freshness, so this revalidation cost **cannot be isolated as an independent sufficient barrier**. The decomposition of the ~2× window into catch-up vs revalidation is not cleanly separated (the once-per-attempt node2 poll undersamples the catch-up crossing in 4/10 trials).
