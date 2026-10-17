@@ -87,6 +87,9 @@ public class CS6SF1Trial {
         String valueA, valueRead = "(none)", remoteSetup, remoteRead = "(none)";
         long sidInit, sidFinal;
         long tFault, tNotify = -1, tReconnect = -1, tRead;
+        long lastAtReconnect = -1, tNode2ReachedZ = -1;
+        int readAttempt = -1;
+        String firstReadError = "";
         boolean refused = false;
         String error = "";
 
@@ -122,6 +125,7 @@ public class CS6SF1Trial {
         C.updateServerList(client + "," + node2);
         ctl(ctlB, "cut");
         tReconnect = System.currentTimeMillis();
+        lastAtReconnect = lastZxid(C);   // client's demanded zxid entering failover (zxid-gate discriminator)
 
         // OBSERVED preconditions at the start of the failover window (Gate 2).
         Zab n2AtReconnect = fetchZab(node2admin);
@@ -130,20 +134,29 @@ public class CS6SF1Trial {
         // Optional safety control: force catch-up before the read.
         if (mode.equals("SYNC")) { try { syncBlocking(C, path); } catch (Exception ex) { /* recorded via outcome */ } }
 
-        // Failover read, retried while C fails over to node 2. ConnectionLoss is
-        // expected transiently; a genuine barrier exhausts the retries (refused).
+        // Failover read, retried while C fails over to node 2. Each attempt also samples
+        // node 2's applied zxid, to timestamp its catch-up to Z relative to when the read
+        // is served -- separates "client demanded Z (zxid gate)" from a revalidation cost
+        // beyond catch-up. Wall-clock bounded so it survives larger delays.
         refused = true;
-        for (int attempt = 0; attempt < 20; attempt++) {
+        long readDeadline = System.currentTimeMillis() + 25000;
+        for (int attempt = 0; System.currentTimeMillis() < readDeadline; attempt++) {
+            if (tNode2ReachedZ < 0) {
+                Zab zp = fetchZab(node2admin);
+                if (zp.ok && zp.zxid >= Z) tNode2ReachedZ = System.currentTimeMillis();
+            }
             try {
                 Stat sR = new Stat();
                 byte[] bR = C.getData(path, false, sR);
                 valueRead = new String(bR, StandardCharsets.UTF_8);
                 lastAfterRead = lastZxid(C);
                 remoteRead = remote(C);
+                readAttempt = attempt;
                 refused = false;
                 error = error.startsWith("watch") ? error : "";
                 break;
             } catch (KeeperException ke) {
+                if (firstReadError.isEmpty()) firstReadError = ke.getClass().getSimpleName();
                 error = "failover read (attempt " + attempt + "): "
                         + ke.getClass().getSimpleName() + " " + ke.getMessage();
                 Thread.sleep(250);
@@ -151,6 +164,7 @@ public class CS6SF1Trial {
         }
         tRead = System.currentTimeMillis();
         Zab n2AtRead = fetchZab(node2admin);
+        if (tNode2ReachedZ < 0 && n2AtRead.ok && n2AtRead.zxid >= Z) tNode2ReachedZ = tRead;
         sidFinal = C.getSessionId();
 
         // Heal.
@@ -165,6 +179,10 @@ public class CS6SF1Trial {
         boolean gQuorum       = leadAtReconnect.ok && leadAtReconnect.state.equalsIgnoreCase("broadcast") && leadAtReconnect.isLeader;
         boolean reachedBehindZ = n2AtReconnect.ok && n2AtReconnect.zxid >= A && n2AtReconnect.zxid < Z;
         boolean servedBehindZ  = n2AtRead.ok && n2AtRead.zxid >= 0 && n2AtRead.zxid < Z;
+        boolean clientDemandedZ = lastAtReconnect >= 0 && lastAtReconnect >= Z;
+        long reconnectToReadMs = tRead - tReconnect;
+        long catchupAfterReconnectMs = (tNode2ReachedZ > 0) ? (tNode2ReachedZ - tReconnect) : -1;
+        long serveAfterCatchupMs = (tNode2ReachedZ > 0) ? (tRead - tNode2ReachedZ) : -1;
 
         // ---- predeclared classification (CS6_SF1_PLAN.md s7; do NOT interpret here) ----
         String outcome;
@@ -214,6 +232,13 @@ public class CS6SF1Trial {
         kv(j, "n2ZxidReconnect", hex(n2AtReconnect.zxid)); kv(j, "n2ZabOkReconnect", n2AtReconnect.ok);
         kv(j, "n2ZxidAtRead", hex(n2AtRead.zxid)); kv(j, "n2ZabOkAtRead", n2AtRead.ok);
         kv(j, "leaderZab", q(leadAtReconnect.state)); kv(j, "leaderIsLeader", leadAtReconnect.isLeader);
+        // zxid-gate vs revalidation discriminators
+        kv(j, "lastAtReconnect", hex(lastAtReconnect)); kv(j, "clientDemandedZ", clientDemandedZ);
+        kv(j, "readAttempt", readAttempt); kv(j, "firstReadError", q(firstReadError));
+        kv(j, "tNode2ReachedZ", tNode2ReachedZ);
+        kv(j, "reconnectToReadMs", reconnectToReadMs);
+        kv(j, "catchupAfterReconnectMs", catchupAfterReconnectMs);
+        kv(j, "serveAfterCatchupMs", serveAfterCatchupMs);
         // gates / derived
         kv(j, "notifyHeldA", notifyHeldA); kv(j, "gFollowing", gFollowing); kv(j, "gQuorum", gQuorum);
         kv(j, "reachedBehindZ", reachedBehindZ); kv(j, "servedBehindZ", servedBehindZ);
