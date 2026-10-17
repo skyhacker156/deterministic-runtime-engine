@@ -1,100 +1,109 @@
-# CS7 (C1) — Pre-Registration: Curator lock → resource-fencing seam
+# CS7 (C1) — Pre-Registration: Curator lock → external-resource write-authority boundary
 
-**STATUS: UNFROZEN.** Draft for review. Do not build the harness until frozen. Freeze is gated on the user's review of the §0 documentation findings and the final doc surface (javadoc vs recipe-page discrepancy, TN10/TN14) being accepted.
-**Case:** CS7, candidate C1 (selected provisionally).
-**Research question (verbatim intent):** whether a *realistic application using the documented library* can violate an *explicit resource invariant*, and whether Curator's documentation adequately explains that risk and its mitigation.
-**Pins:** Apache Curator 5.9.0, commit `37c7a713` (tag `apache-curator-5.9.0`, verified). ZooKeeper 3.9.6, commit `a355171b` (tag `release-3.9.6`) — reuse the CS6 3-node ensemble + proxy tooling. Date: 2026-10-17.
-
----
-
-## 0. Documentation findings (claim vs. enforced — done, under review)
-
-Separating Curator's actual contractual claims from our interpretation:
-
-- **Recipe page (official), `curator.apache.org/docs/recipes-shared-reentrant-lock`** claims exactly: *"Fully distributed locks that are globally synchronous, meaning at any snapshot in time no two clients think they hold the same lock."* This is a claim about **clients' belief/coordination**, not about an external resource being protected from two writers.
-- **Javadoc (source, `InterProcessMutex.java`)** claims more strongly: *"achieve an inter-process critical section."* → a **discrepancy**: the javadoc overclaims relative to the careful official page. Our earlier "critical section" framing came from the javadoc, not the recipe page.
-- **Warnings (official):** *"If a SUSPENDED state is reported you cannot be certain that you still hold the lock unless you subsequently receive a RECONNECTED state."*; *"If a LOST state is reported it is certain that you no longer hold the lock."*; *"strongly recommended that you add a `ConnectionStateListener`."* Error Handling page: SUSPENDED → *"Leaders, locks, etc. should suspend"*; LOST → *"consider any locks, etc. as dirty/unstable."*
-- **Absent:** no fencing-token accessor in the public API (`InterProcessLock` = acquire/acquire(t)/release/isAcquiredInThisProcess; mutex adds getParticipantNodes/makeRevocable/isOwnedByCurrentThread); `grep` for `fenc*`/stale-writer across the lock recipes = 0; the Error Handling page gives **no instruction to stop acting on the protected resource**.
-
-**Honest reading:** Curator documents that the lock can be *lost* and recommends *detection* (a `ConnectionStateListener`). It does **not** claim resource-level mutual exclusion, and it provides **no fencing token**. The open gap is whether the *recommended detection mitigation* is sufficient to protect a resource against a **stalled** holder (it is asynchronous and cooperative), and whether the docs convey that insufficiency.
-
-*(Remaining doc surface to confirm before freeze: Tech Note 10 "recipes that depend on being connected" and Tech Note 14; whether any official example threads a fence. Listed for completeness; findings above are the load-bearing ones.)*
+**STATUS: UNFROZEN — amended per review, ready to freeze pending final OK.** No harness before freeze.
+**Case:** CS7, candidate C1 (locked).
+**Pins:** Apache Curator 5.9.0, commit `37c7a713` (tag `apache-curator-5.9.0`, verified). ZooKeeper 3.9.6, commit `a355171b` (tag `release-3.9.6`, verified) — reuse the CS6 3-node ensemble + proxy tooling. Date: 2026-10-17.
 
 ---
 
-## 1. Hypothesis
+## 1. Hypothesis (H-C1)
 
-**H-C1:** A realistic application that follows Curator's documented lock guidance — acquires an `InterProcessMutex`, registers a `ConnectionStateListener`, treats SUSPENDED/LOST as lock-loss — can **still** write to an external resource **after** its lock was lost (session expiry during a holder stall) and **before** it processes the LOST event, violating the resource's mutual-exclusion invariant, because Curator's recommended mitigation is asynchronous and no fencing token is provided.
+Under Curator 5.9.0 and ZooKeeper 3.9.6, an application following Curator's documented connection-state guidance **may attempt a write to an external resource after its lock has been lost.** The experiment tests whether that guidance *alone* prevents the stale write under a specified holder-stall fault model, and whether the official documentation adequately distinguishes **lock-loss detection** from **resource-enforced write authority.**
 
-**This is NOT a claim that Curator is defective.** Curator does not promise resource protection. H-C1 tests the *integration boundary* and the *documentation adequacy*, per §9.
-
----
-
-## 2. Target, resource invariant, and the stalled-writer sequence
-
-- **System under test:** a Curator `InterProcessMutex` on the ZK 3.9.6 ensemble, two client applications (A, B), and a **protected resource** (a local monotonic register/file).
-- **Resource invariant (explicit):** at most one writer mutates the resource per lock epoch; a write from a holder whose lock has been lost must not take effect. Operationalized as: the resource's value/version is never written by a client that no longer holds the lock.
-- **Stalled-writer sequence (instrumented):**
-  1. A acquires the lock (ephemeral sequential znode).
-  2. A stalls: its ZK client channel is blackholed (proxy `HOLD`) long enough for the **server-side session to expire**, deleting A's ephemeral node. (Models the "holder paused past session timeout" case.)
-  3. B acquires the lock (now free).
-  4. A's channel is restored (`PASS`); A resumes and attempts a resource write.
-  5. Record whether A's write reaches the resource, and whether A's `ConnectionStateListener` had already set its lock-lost flag at the instant of A's write.
+**Framing guards (binding):**
+- The stale-holder scenario itself is **already documented** (Curator Tech Note 10) and is **not claimed as novel.**
+- A stale write accepted by an **unfenced** resource is evidence about the **integration boundary**, not by itself evidence of a Curator defect or of inadequate documentation.
+- The fencing control tests whether stale writes can be **rejected** when the resource atomically enforces monotonically increasing fencing tokens **and has already observed the newer holder's token.**
 
 ---
 
-## 3. Arms and controls (pre-committed)
+## 0. Documentation findings (verified; recorded as an OPEN ASSESSMENT, not a presumed deficiency)
 
-- **Arm U — unfenced resource + documented mitigation.** The app follows Curator's docs: `ConnectionStateListener` sets a volatile `lockLost` flag on SUSPENDED/LOST; A checks `!lockLost` before writing. The resource does **not** check any token. *Purpose:* test whether a doc-following app can still land a post-loss write (the race window). **Explicitly demonstrates the integration boundary, not a Curator defect.**
-- **Arm F — fencing-aware resource (control).** The app threads a monotonic token (derived from the lock znode sequence / `czxid`, which the app must extract itself since Curator does not expose it) into each resource write; the resource rejects any write whose token is below the highest it has accepted. *Expectation:* blocked — shows the gap is closable only by a fence Curator does not provide.
-- **Control N — no-stall baseline.** Same construction, no session expiry. *Expectation:* no violation; confirms the rig does not manufacture one.
+Quoted from official 5.9.0-era docs:
+- **Recipe page:** *"Fully distributed locks that are globally synchronous, meaning at any snapshot in time no two clients think they hold the same lock"* — a claim about clients' belief, not resource protection. (Javadoc says "inter-process critical section" — a stronger wording; recorded as a doc/source discrepancy.)
+- **Tech Note 10:** explicitly documents the long-GC-pause sequence — 3 s session timeout, A holds the mutex, 10 s STW pause, A's session lapses, ZK deletes the node, B acquires, and *"BOTH CLIENT A AND CLIENT B WILL BELIEVE THEY ARE THE LOCK HOLDER."* Remedy offered: *"tune your JVM so that GC pauses… do not exceed your session timeout."*
+- **Tech Note 14:** *"no way to completely emulate in the client the session timing,"* recommends *"treat SUSPENDED as a complete connection loss,"* *"Exit all locks, leaders, etc."*
+- **Error Handling page:** SUSPENDED → suspend; LOST → treat locks as dirty/unstable. No instruction about external-resource writes; no fencing token anywhere in API or docs.
 
----
-
-## 4. Outcome classification (pre-committed; exactly one per valid trial)
-
-- **VIOLATION** — in Arm U, A's post-loss write takes effect on the resource (A wrote with `lockLost==false` at write time, B already held the lock). The doc-following mitigation did not prevent it.
-- **BLOCKED** — A's write is prevented: either the documented listener set `lockLost` before A's write (mitigation sufficed), or Arm F's fence rejected it. Identify which.
-- **INCONCLUSIVE** — preconditions not met: session did not actually expire, B did not acquire, A's write did not occur, or the stall window could not be engineered. (Reachability result, not "safe.")
-
-A trial counts only if observed: A held then lost the lock (session expiry confirmed via ZK), B acquired, and A attempted the write.
+**Open assessment (to be judged, not presumed):** Curator *documents* the stale-holder/overlapping-belief risk and recommends client-side remedies (GC/timeout tuning; connection-state handling; "exit all locks"). The surfaced documentation does **not** connect those remedies to an external resource's enforcement of write authority, nor prescribe fencing as the resource-side safeguard. Whether that omission makes the guidance inadequate is an **evaluative question**, recorded separately from the execution outcome (§10).
 
 ---
 
-## 5. Instrumentation / required logs
+## 2. Target and resource invariant
 
-Per trial (JSON): timestamps for A-acquire, stall-start, server-side session-expiry (ZK), B-acquire, A-resume, A-write-attempt, listener-LOST-fired; A's `lockLost` flag value at the instant of A's write (the race witness); the resource's accepted/rejected decision and any fence token; A's and B's znode identities; connection-state events A received. ZK and Curator version pins recorded in each record.
-
----
-
-## 6. Reachability risk (flagged, like CS6-SF1)
-
-The VIOLATION window (A writes post-loss before processing LOST) requires engineering a race that mimics a full-process stall. A channel blackhole alone may let A's listener fire in time (→ BLOCKED). The honest modal outcome may be BLOCKED (documented mitigation sufficed against our injectable stall) or INCONCLUSIVE (window unreachable). **All three outcomes are informative** about whether the documented mitigation is adequate — that is the point, not a bug hunt.
+- **System:** a Curator `InterProcessMutex` on the ZK 3.9.6 ensemble; two client applications A, B; one **external protected resource** (a local monotonic register/file with an atomic compare-and-set).
+- **Resource invariant (explicit):** a write from a client that no longer holds the lock must not take effect; at most one client's writes are accepted per lock epoch.
 
 ---
 
-## 7. Time budget, stop, N
+## 3. Fault models
 
-One bounded research block, hard wall-clock cap set before starting. Pilot to establish that the stall reliably expires A's session and B acquires; then N=20 per arm if the window is reachable. If the window cannot be engineered within the cap, record the reachability limitation and stop.
+- **PRIMARY — genuine process pause (faithful to TN10).** A acquires the lock with a short negotiated session timeout (e.g., 5 s; within ZK min/max = 2×–20× tickTime). A's **entire JVM process is suspended** (Sysinternals `PsSuspend`, or `NtSuspendProcess` via a small helper) for longer than the session timeout, freezing all threads including the ZK client — so A's `ConnectionStateListener` **cannot** fire during the stall. The ensemble expires A's session (verify server-side: A's ephemeral node gone, B able to acquire). A is resumed (`PsSuspend -r`); A's main thread resumes at the point before its resource write. Record whether A's write occurs before its listener processes LOST.
+- **CONTROL — channel blackhole.** Proxy `HOLD` on A's client→ZK channel (our CS6 tooling). Here A's listener **can** fire (connection loss detected while A runs), so this tests the network-partition variant, not a true stall. Reported separately; conclusions limited accordingly.
+- **BASELINE — no stall.** Confirms the rig does not manufacture a stale write.
 
----
-
-## 8. What would falsify H-C1 / what would merely confirm a known limitation
-
-- **Falsifies H-C1:** the doc-following mitigation (listener) reliably prevents A's post-loss write across the tested stalls — i.e., `lockLost` is always set before A can write. That would be evidence Curator's recommended mitigation is adequate against these stalls.
-- **Merely confirms a known limitation (must NOT be promoted):** showing that an **unfenced resource with no listener** accepts a stale write. That is Kleppmann's known principle and a strawman. The study is only meaningful if Arm U uses the **documented** mitigation and still violates — and if the finding is tied to whether the docs convey that insufficiency.
-- **Genuine contribution (if reached):** a doc-following Curator integration violates the resource invariant, and the docs do not adequately explain that lock-loss *detection* is insufficient without fencing.
+*Dependency / feasibility:* `PsSuspend` is a one-tool download (accessibility cost, logged). If the process-pause arm cannot be made reliable within the time budget, preserve the blackhole + baseline and **limit all conclusions to the blackhole fault model** (stated explicitly in the result).
 
 ---
 
-## 9. Scope / framing guards
+## 4. Arms
 
-- Does not assert a Curator defect: Curator does not promise resource exclusion. The finding, if any, is an integration-boundary + documentation-adequacy result.
-- Does not generalize beyond Curator 5.9.0 / ZK 3.9.6 / the tested stall model.
+- **Arm U — unfenced resource + documented mitigation (primary).** The app follows Curator's docs: registers a `ConnectionStateListener` that sets a volatile `lockLost` flag on SUSPENDED/LOST; A checks `!lockLost` before writing. The resource performs no token check. Tests whether the documented mitigation alone prevents the post-loss write.
+- **Arm F — resource-side fencing (control).** Fencing token = A's own lock znode **sequence number** (ZK guarantees it increases across successive acquisitions); the app identifies its own node via the lock path / `getParticipantNodes()`. The resource keeps the highest token accepted and **atomically** rejects any write whose token is not strictly greater. **Ordering requirement (binding):** B must present its newer (higher) token to the resource **before** A's stale write is attempted — i.e., sequence the trial B-acquires → B-writes(token_B) → A-resumes → A-writes(token_A<token_B). Otherwise the resource has not yet seen B's token and would accept A's stale token, falsely validating the fence. The fence is the **application's** responsibility built around Curator's recipe, **not** something Curator must provide for the experiment to be valid. If token extraction proves too costly, Arm F is a separately bounded sub-task and Arm U remains the primary test.
+
+---
+
+## 5. Outcome classification (pre-committed; keep these SEPARATE in recorded data)
+
+- **STALE_WRITE_ACCEPTED** — A's post-loss write took effect on the resource (A held then lost the lock; B had acquired). The configured mitigation did not prevent it.
+- **LISTENER_BLOCKED** — the documented listener set `lockLost` before A's write, so A did not write. The application-side mitigation prevented it *in this execution*.
+- **FENCE_REJECTED** — the resource rejected A's write because A's token was below the highest it had accepted (B's token already registered). The resource independently enforced write authority.
+- **INVALID_TRIAL** — a required precondition was not established (session did not expire, B did not acquire, A did not reach the write, suspend/resume failed). A reachability result, not "safe."
+
+Do **not** treat N trials without STALE_WRITE_ACCEPTED as proof of safety — they are evidence about the tested execution and fault model only.
+
+---
+
+## 6. Instrumentation / required logs
+
+Per trial (JSON): session timeout; timestamps for A-acquire, suspend-start, server-side session-expiry (ZK: A's node gone), B-acquire, resume, listener-LOST-fired, A-write-attempt; A's `lockLost` value at the instant of its write (race witness); for Arm F, token_A, token_B, the resource's highest-accepted token at A's write, and accept/reject; A's and B's lock znode identities/sequences; connection-state events A received; fault model (pause / blackhole / baseline); Curator + ZK version pins.
+
+---
+
+## 7. Reachability / feasibility risk
+
+The STALE_WRITE_ACCEPTED window requires A's main thread to resume and write before its event thread processes LOST. The process-pause model makes this faithful (listener frozen during the stall); the main risk is `PsSuspend` reliability and session-timeout/suspend-duration tuning. Honest modal outcomes: STALE_WRITE_ACCEPTED (unfenced, pause) or FENCE_REJECTED (fenced) if the window is reached; LISTENER_BLOCKED (esp. blackhole control) or INVALID_TRIAL if not. All are informative about the detection-vs-enforcement question.
+
+---
+
+## 8. Time budget, stop, N
+
+One bounded block, hard wall-clock cap set before starting. Pilot: establish that a process suspension reliably expires A's session and B acquires; then N=20 per arm/fault-model if the window is reachable. If unreachable within the cap, record the reachability limitation and stop.
+
+---
+
+## 9. Falsification / known-limitation boundary
+
+- **Falsifies H-C1:** the documented listener mitigation reliably prevents A's post-loss write across the tested process-pause stalls (`lockLost` always set before A can write).
+- **Merely confirms a known limitation (must NOT be promoted):** an unfenced resource with **no** listener accepting a stale write — that is the documented TN10 scenario and a strawman. The study is only meaningful because Arm U uses the **documented** mitigation and the question is resource write-authority + doc adequacy.
+- **Contribution (if reached):** a doc-following Curator integration still violates the resource invariant under a faithful stall, establishing that lock-loss *detection* ≠ resource *write authority*, and that the official guidance does not bridge that gap — recorded as the §10 assessment.
+
+---
+
+## 10. Documentation assessment (recorded SEPARATELY from execution outcome)
+
+Independent of the trial outcomes, record: (a) what the official material states (quoted, §0); (b) the mitigation it recommends; (c) whether it explicitly addresses resource-side write authority / prescribes fencing. The adequacy judgment is reported as an argued assessment, not asserted as fact, and never inferred merely from a STALE_WRITE_ACCEPTED outcome.
+
+---
+
+## 11. Scope / framing guards
+
+- Not a Curator defect claim: Curator does not promise resource exclusion and documents the stale-holder risk (TN10). Finding, if any, is an integration-boundary + documentation-adequacy result.
+- No generalization beyond Curator 5.9.0 / ZK 3.9.6 / the tested stall models.
 - Source-pinned and auditable (Curator `37c7a713`, ZK `a355171b`).
 
 ---
 
-## 10. Freeze procedure
+## 12. Freeze procedure
 
-Freeze only after: (a) user review of §0 findings; (b) confirmation of TN10/TN14 and any official fenced example. On freeze: commit, record SHA-256, then build the harness (reusing the ZK ensemble + proxy; Arm U/F apps + the resource). No harness before freeze.
+Freeze on your OK: commit this pre-registration, record its SHA-256 (CS6_PLAN style), then build the harness (reuse the ZK ensemble + proxy; Arm U/F apps + the resource + the PsSuspend driver). No harness before freeze.
