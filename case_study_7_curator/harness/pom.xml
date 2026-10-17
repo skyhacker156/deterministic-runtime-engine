@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  CS7 (C1) dependency resolver. Not a build — just a way to pull Apache Curator
+  5.9.0 and its transitive deps (curator-framework, curator-client, ZooKeeper,
+  Guava, slf4j) into a local lib folder so C1Client.java can be compiled/run
+  with a plain `javac`/`java -cp`.
+
+  Setup (operator box, needs Maven; `winget install Apache.Maven` if absent):
+    mvn -q dependency:copy-dependencies -DoutputDirectory=C:\cs7lib
+  Then:
+    javac -cp "C:\cs7lib\*" C1Client.java
+    java  -cp ".;C:\cs7lib\*" C1Client --role A ...
+
+  Pinned to Curator 5.9.0 (commit 37c7a713) per the frozen pre-registration.
+  Note: this pulls ZooKeeper 3.9.x as a Curator transitive dep for the CLIENT
+  classpath; the ENSEMBLE remains the pinned 3.9.6 server (a355171b).
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>phoenix.cs7</groupId>
+  <artifactId>cs7-c1-deps</artifactId>
+  <version>1.0</version>
+  <packaging>pom</packaging>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.apache.curator</groupId>
+      <artifactId>curator-recipes</artifactId>
+      <version>5.9.0</version>
+    </dependency>
+    <!-- slf4j simple binding so Curator/ZK logging has an implementation (quiet, optional) -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>2.0.13</version>
+    </dependency>
+  </dependencies>
+</project>
